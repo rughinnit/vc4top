@@ -440,6 +440,7 @@ std::vector<std::string> system_panel(const SysData& s, int width)
 
 std::vector<std::string> qpu_panel(const QpuData& q, int width)
 {
+    (void)width; // lines are clipped by box()
     std::vector<std::string> b;
     char buf[256];
     if (!q.powered)
