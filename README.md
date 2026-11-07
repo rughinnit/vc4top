@@ -7,7 +7,7 @@ Realtime terminal monitor for the Broadcom **VideoCore IV** GPU/QPU (Raspberry P
 ## What it shows
 
 - **System / power**: arm, core, V3D, H264, ISP, pixel, HDMI, VEC and eMMC clocks; core/SDRAM voltages; temperature; decoded throttle bits; GPU/ARM memory split; CMA; V3D runtime-PM state; undervoltage alarm; HVS underrun; DRM name; HDMI status/mode; buffer/client counts.
-- **QPU / scheduler / VPM**: IDENT0/1/2, slices/TMUs/QPUs/semaphores, SRQCS requests/completed/qpu_count, VPMBASE, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL, INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL, ERRSTAT.
+- **QPU / scheduler / VPM**: IDENT0/1/2, revision, slices, QPUs/slice, TMUs/slice, total QPUs/TMUs, semaphores, VPM size, HDR support, SRQCS queue/requests/completed/qerr, VPMBASE reserved bytes, VPACNTL, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL, INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL and decoded ERRSTAT.
 - **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall bars computed from counter sources 13-19.
 - **Counters**: all **30** V3D counter sources, on three pages (the hardware has 16 counters, so pages are used):
   - page 1: QPU/GPU primary, sources 13-28
@@ -76,7 +76,8 @@ If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI
 ## Limitations
 
 - The 16 V3D hardware counters are **3D-pipeline oriented**. Raw QPU compute launched through VC4CL's register-poking backend may leave the QPU idle/valid counters at zero even while a kernel runs. There is no per-QPU utilization register on VideoCore IV. Use `--poll` for scheduler state and `VC4CL_DEBUG=perf,execution` for per-kernel timing.
-- `V3D_ERRSTAT=0x1000` / `0x1030` is normal on this board and is not a pass/fail signal.
+- `V3D_ERRSTAT=0x1000` is the normal VCD-idle bit. `0x1030` means **VCD-idle plus VPM write-range/read-range errors** (bits 4/5) and is not normal; it usually points at a missing/incorrect VPMBASE reservation. The TUI and `--once` now decode the ERRSTAT bits instead of treating 0x1030 as benign.
+- `VPMBASE` (Table 69) is the amount of VPM reserved for user programs in 256-byte units, **not** a base address. `0` means no VPM reserved. Raw QPU compute needs a correct non-zero reservation; the `vc4` KMS driver sets it to 0 because it has no user-QPU interface.
 - Only one process should own the V3D block; a GL/compositor client will conflict with VC4CL and with direct register monitoring.
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 

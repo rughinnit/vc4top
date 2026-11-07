@@ -77,8 +77,9 @@ struct QpuData {
     uint32_t srqcs = 0, vpmbase = 0, sqrsv0 = 0, sqrsv1 = 0, sqcntl = 0;
     uint32_t srqpc = 0, srqua = 0, srqul = 0;
     uint32_t intctl = 0, intena = 0, intdis = 0;
-    uint32_t pctre = 0, pctrc = 0, l2cactl = 0, slcactl = 0, errstat = 0;
+    uint32_t pctre = 0, pctrc = 0, l2cactl = 0, slcactl = 0, errstat = 0, vpacntl = 0;
     int revision = 0, slices = 0, tmus = 0, qpus = 0, semaphores = 0;
+    int tmus_per_slice = 0, qpus_per_slice = 0, vpm_kb = 0, hdr = 0;
     bool powered = false;
 };
 
@@ -288,25 +289,41 @@ void collect_qpu(QpuData& q)
     q.l2cactl = rd(V3D_L2CACTL);
     q.slcactl = rd(V3D_SLCACTL);
     q.errstat = rd(V3D_ERRSTAT);
+    q.vpacntl = rd(V3D_VPACNTL);
     q.powered = q.ident0 != POWEROFF_VALUE;
     if (q.powered)
     {
-        // The kernel's v3d_ident debugfs is authoritative; fall back to slices.
-        std::string s = read_file("/sys/kernel/debug/dri/0/v3d_ident");
-        if (!s.empty())
-        {
-            sscanf(s.c_str(), "Revision: %d\nSlices: %d\nTMUs: %d\nQPUs: %d\nSemaphores: %d",
-                &q.revision, &q.slices, &q.tmus, &q.qpus, &q.semaphores);
-        }
-        else
-        {
-            q.revision = q.ident1 & 0xF;
-            q.slices = (q.ident1 >> 4) & 0xF;
-            q.tmus = q.slices * 2;
-            q.qpus = q.slices * 4;
-            q.semaphores = 16;
-        }
+        // V3D_IDENT1 (VideoCoreIV-AG100-R, Table 80):
+        // 31:28 VPMSZ (1K units, 0 => 16K), 27:24 HDRT, 23:16 NSEM,
+        // 15:12 TUPS (TMUs/slice), 11:8 QUPS (QPUs/slice), 7:4 NSLC, 3:0 REV.
+        q.revision = q.ident1 & 0xF;
+        q.slices = (q.ident1 >> 4) & 0xF;
+        q.qpus_per_slice = (q.ident1 >> 8) & 0xF;
+        q.tmus_per_slice = (q.ident1 >> 12) & 0xF;
+        q.semaphores = (q.ident1 >> 16) & 0xFF;
+        q.hdr = (q.ident1 >> 24) & 0xF;
+        q.vpm_kb = (q.ident1 >> 28) & 0xF;
+        if (q.vpm_kb == 0) q.vpm_kb = 16;
+        q.qpus = q.slices * q.qpus_per_slice;
+        q.tmus = q.slices * q.tmus_per_slice;
     }
+}
+
+std::string errstat_string(uint32_t v)
+{
+    static const char* names[16] = {
+        "VPAEABB", "VPAERGS", "VPAEBRGL", "VPAERRGL",
+        "VPMEWR", "VPMERR", "VPMERNA", "VPMEWNA",
+        "VPMEFNA", "VPMEAS", "VDWE", "VCDE",
+        "VCD-idle", "VCMRE", "VCMBE", "L2CARE"};
+    std::string s;
+    for (int i = 0; i < 16; ++i)
+        if (v & (1u << i))
+        {
+            if (!s.empty()) s += ",";
+            s += names[i];
+        }
+    return s.empty() ? "none" : s;
 }
 
 std::vector<int> page_sources(int page)
@@ -338,6 +355,8 @@ std::vector<CounterValue> sample_counters(int page, int interval_ms)
         wr(V3D_PCTRS0 + 8 * static_cast<uint32_t>(i), static_cast<uint32_t>(sources[i]));
         wr(V3D_PCTRC, 1u << i);
     }
+    // Table 84 marks bit 31 reserved, but on this V3D the counters do not
+    // advance unless bit 31 is set (the original vc4top does the same).
     wr(V3D_PCTRE, 0x80000000u);
     for (size_t i = 0; i < n; ++i)
         wr(V3D_PCTRE, rd(V3D_PCTRE) | (1u << i));
@@ -449,16 +468,18 @@ std::vector<std::string> qpu_panel(const QpuData& q, int width)
         b.push_back("start vc4cl-v3d-power or write on to power/control");
         return b;
     }
-    snprintf(buf, sizeof(buf), "ident    %d sl / %d tmu / %d qpu / %d sem   rev %d",
-        q.slices, q.tmus, q.qpus, q.semaphores, q.revision);
+    snprintf(buf, sizeof(buf), "ident    %d sl x %d qpu = %d qpu / %d tmu / %d sem",
+        q.slices, q.qpus_per_slice, q.qpus, q.tmus, q.semaphores);
+    b.push_back(buf);
+    snprintf(buf, sizeof(buf), "config   vpm %dK  hdr %d  rev %d", q.vpm_kb, q.hdr, q.revision);
     b.push_back(buf);
     snprintf(buf, sizeof(buf), "ident0   0x%08x  ident1 0x%08x", q.ident0, q.ident1);
     b.push_back(buf);
-    snprintf(buf, sizeof(buf), "srqcs    0x%08x  req %u  done %u  qpu %u",
-        q.srqcs, q.srqcs & 0x3F, (q.srqcs >> 8) & 0xFF, (q.srqcs >> 16) & 0xFF);
+    snprintf(buf, sizeof(buf), "srqcs    0x%08x  queue %u  req %u  done %u  qerr %u",
+        q.srqcs, q.srqcs & 0x3F, (q.srqcs >> 8) & 0xFF, (q.srqcs >> 16) & 0xFF, (q.srqcs >> 7) & 1);
     b.push_back(buf);
-    snprintf(buf, sizeof(buf), "vpmbase  0x%08x (%u words)   sqcntl 0x%08x",
-        q.vpmbase, (q.vpmbase & 0x1F) * 256, q.sqcntl);
+    snprintf(buf, sizeof(buf), "vpmbase  0x%08x  reserved %u B of %dK  vpacntl 0x%08x",
+        q.vpmbase, (q.vpmbase & 0x1F) * 256, q.vpm_kb, q.vpacntl);
     b.push_back(buf);
     snprintf(buf, sizeof(buf), "sqrsv    0x%08x / 0x%08x", q.sqrsv0, q.sqrsv1);
     b.push_back(buf);
@@ -474,7 +495,7 @@ std::vector<std::string> qpu_panel(const QpuData& q, int width)
     b.push_back(buf);
     snprintf(buf, sizeof(buf), "slc      0x%08x", q.slcactl);
     b.push_back(buf);
-    snprintf(buf, sizeof(buf), "errstat  0x%08x  (0x1000/0x1030 normal)", q.errstat);
+    snprintf(buf, sizeof(buf), "errstat  0x%08x  %s", q.errstat, errstat_string(q.errstat).c_str());
     b.push_back(buf);
     return b;
 }
@@ -679,19 +700,23 @@ void print_snapshot(bool all_counters, bool regs)
     printf("IDENT2:         0x%08x\n", qpu.ident2);
     printf("revision:       %d\n", qpu.revision);
     printf("slices:         %d\n", qpu.slices);
-    printf("TMUs:           %d\n", qpu.tmus);
-    printf("QPUs:           %d\n", qpu.qpus);
+    printf("QPUs/slice:     %d (total %d)\n", qpu.qpus_per_slice, qpu.qpus);
+    printf("TMUs/slice:     %d (total %d)\n", qpu.tmus_per_slice, qpu.tmus);
     printf("semaphores:     %d\n", qpu.semaphores);
-    printf("SRQCS:          0x%08x requests=%u completed=%u qpu_count=%u\n",
-        qpu.srqcs, qpu.srqcs & 0x3F, (qpu.srqcs >> 8) & 0xFF, (qpu.srqcs >> 16) & 0xFF);
-    printf("VPMBASE:        0x%08x (%u words)\n", qpu.vpmbase, (qpu.vpmbase & 0x1F) * 256);
+    printf("VPM size:       %dK\n", qpu.vpm_kb);
+    printf("HDR support:    %d\n", qpu.hdr);
+    printf("SRQCS:          0x%08x queue=%u requests=%u completed=%u qerr=%u\n",
+        qpu.srqcs, qpu.srqcs & 0x3F, (qpu.srqcs >> 8) & 0xFF, (qpu.srqcs >> 16) & 0xFF, (qpu.srqcs >> 7) & 1);
+    printf("VPMBASE:        0x%08x reserved=%u bytes of %dK\n",
+        qpu.vpmbase, (qpu.vpmbase & 0x1F) * 256, qpu.vpm_kb);
+    printf("VPACNTL:        0x%08x\n", qpu.vpacntl);
     printf("SQRSV0/1:       0x%08x / 0x%08x\n", qpu.sqrsv0, qpu.sqrsv1);
     printf("SQCNTL:         0x%08x\n", qpu.sqcntl);
     printf("SRQPC/SRQUA:    0x%08x / 0x%08x (len 0x%08x)\n", qpu.srqpc, qpu.srqua, qpu.srqul);
     printf("INTCTL/ENA/DIS: 0x%08x / 0x%08x / 0x%08x\n", qpu.intctl, qpu.intena, qpu.intdis);
     printf("PCTRE/PCTRC:    0x%08x / 0x%08x\n", qpu.pctre, qpu.pctrc);
     printf("L2CACTL/SLCACTL:0x%08x / 0x%08x\n", qpu.l2cactl, qpu.slcactl);
-    printf("ERRSTAT:        0x%08x\n", qpu.errstat);
+    printf("ERRSTAT:        0x%08x %s\n", qpu.errstat, errstat_string(qpu.errstat).c_str());
     printf("\n");
 
     if (all_counters)
@@ -725,7 +750,7 @@ void print_snapshot(bool all_counters, bool regs)
 
 void poll_loop(int interval_ms)
 {
-    printf("time,srqcs,requests,completed,qpu_count,srqpc,srqua,srqul,vpmbase,errstat,pctre\n");
+    printf("time,srqcs,queue,requests,completed,qerr,srqpc,srqua,srqul,vpmbase,errstat,pctre\n");
     fflush(stdout);
     while (g_running)
     {
@@ -734,8 +759,8 @@ void poll_loop(int interval_ms)
         char ts[32];
         std::strftime(ts, sizeof(ts), "%H:%M:%S", std::localtime(&t));
         uint32_t srqcs = rd(V3D_SRQCS);
-        printf("%s,0x%08x,%u,%u,%u,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x\n",
-            ts, srqcs, srqcs & 0x3F, (srqcs >> 8) & 0xFF, (srqcs >> 16) & 0xFF,
+        printf("%s,0x%08x,%u,%u,%u,%u,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x\n",
+            ts, srqcs, srqcs & 0x3F, (srqcs >> 8) & 0xFF, (srqcs >> 16) & 0xFF, (srqcs >> 7) & 1,
             rd(V3D_SRQPC), rd(V3D_SRQUA), rd(V3D_SRQUL), rd(V3D_VPMBASE),
             rd(V3D_ERRSTAT), rd(V3D_PCTRE));
         fflush(stdout);
