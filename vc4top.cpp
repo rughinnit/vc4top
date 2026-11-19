@@ -56,11 +56,12 @@ bool g_color = true;
 const char* K_RESET = "\033[0m";
 const char* K_BOLD = "\033[1m";
 const char* K_DIM = "\033[2m";
-const char* K_CYAN = "\033[36m";
+const char* K_RED = "\033[31m";
 const char* K_GREEN = "\033[32m";
 const char* K_YELLOW = "\033[33m";
-const char* K_RED = "\033[31m";
+const char* K_CYAN = "\033[36m";
 const char* K_MAGENTA = "\033[35m";
+const char* K_HEAD = "\033[1;36m";
 
 struct SysData {
     std::string time, temp, throttle, throttle_decoded;
@@ -120,6 +121,28 @@ std::string read_file(const std::string& path)
     return out;
 }
 
+size_t utf8_char_len(unsigned char c)
+{
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+size_t ansi_seq_len(const std::string& s, size_t i)
+{
+    // s[i] is ESC. Skip CSI sequences ("ESC [ ... letter").
+    size_t j = i + 1;
+    if (j < s.size() && s[j] == '[')
+    {
+        ++j;
+        while (j < s.size() && !std::isalpha(static_cast<unsigned char>(s[j]))) ++j;
+        if (j < s.size()) ++j;
+    }
+    return j - i;
+}
+
 size_t visible_len(const std::string& s)
 {
     size_t n = 0;
@@ -127,17 +150,11 @@ size_t visible_len(const std::string& s)
     {
         if (s[i] == '\033')
         {
-            ++i;
-            if (i < s.size() && s[i] == '[')
-            {
-                ++i;
-                while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
-                if (i < s.size()) ++i;
-            }
+            i += ansi_seq_len(s, i);
             continue;
         }
+        i += utf8_char_len(static_cast<unsigned char>(s[i]));
         ++n;
-        ++i;
     }
     return n;
 }
@@ -164,22 +181,27 @@ std::string truncate_visible(const std::string& s, size_t width)
     {
         if (s[i] == '\033')
         {
-            size_t j = i + 1;
-            if (j < s.size() && s[j] == '[')
-            {
-                ++j;
-                while (j < s.size() && !std::isalpha(static_cast<unsigned char>(s[j]))) ++j;
-                if (j < s.size()) ++j;
-            }
-            out.append(s, i, j - i);
-            i = j;
+            const size_t l = ansi_seq_len(s, i);
+            out.append(s, i, l);
+            i += l;
             continue;
         }
-        out.push_back(s[i]);
+        const size_t l = utf8_char_len(static_cast<unsigned char>(s[i]));
+        if (vis + 1 > width) break;
+        out.append(s, i, l);
+        i += l;
         ++vis;
-        ++i;
     }
     if (g_color) out += K_RESET;
+    return out;
+}
+
+std::string clip_vis(const std::string& s, size_t width)
+{
+    if (visible_len(s) <= width) return s;
+    if (width == 0) return "";
+    std::string out = truncate_visible(s, width - 1);
+    out += ">";
     return out;
 }
 
@@ -187,6 +209,76 @@ std::string colorize(const char* color, const std::string& s)
 {
     if (!g_color) return s;
     return std::string(color) + s + K_RESET;
+}
+
+std::string hex32(uint32_t v)
+{
+    char b[16];
+    snprintf(b, sizeof(b), "0x%08x", v);
+    return b;
+}
+
+std::string mhz_from_hz(const std::string& hz)
+{
+    if (hz.empty()) return "n/a";
+    char* end = nullptr;
+    errno = 0;
+    unsigned long long v = strtoull(hz.c_str(), &end, 10);
+    if (end == hz.c_str() || *end != '\0' || errno != 0) return hz;
+    char b[64];
+    snprintf(b, sizeof(b), "%.3f MHz", static_cast<double>(v) / 1000000.0);
+    return b;
+}
+
+std::string clock_with_units(const std::string& hz)
+{
+    if (hz.empty()) return "n/a";
+    return hz + " Hz (" + mhz_from_hz(hz) + ")";
+}
+
+std::string norm_temp(const std::string& t)
+{
+    if (t.empty()) return "n/a";
+    std::string s = t;
+    auto p = s.find("'C");
+    if (p != std::string::npos) s.replace(p, 2, " \xC2\xB0\x43"); // " °C"
+    return s;
+}
+
+std::string mem_with_units(const std::string& m)
+{
+    if (m.empty()) return "n/a";
+    if (m.back() == 'M') return m.substr(0, m.size() - 1) + " MiB";
+    if (m.back() == 'G') return m.substr(0, m.size() - 1) + " GiB";
+    return m;
+}
+
+std::string cma_units(const std::string& c)
+{
+    if (c.empty()) return "n/a";
+    unsigned long total = 0, freeb = 0;
+    if (sscanf(c.c_str(), "CMA %luM/%luM free", &total, &freeb) == 2)
+    {
+        char b[80];
+        snprintf(b, sizeof(b), "CMA %lu MiB / %lu MiB free", total, freeb);
+        return b;
+    }
+    return c;
+}
+
+const char* temp_color(const std::string& t)
+{
+    const double v = strtod(t.c_str(), nullptr);
+    if (v >= 80.0) return K_RED;
+    if (v >= 70.0) return K_YELLOW;
+    return K_GREEN;
+}
+
+const char* throttle_color(uint32_t v)
+{
+    if (v & 0x000Fu) return K_RED;    // currently throttled / undervolt / temp
+    if (v & 0xFFFF0000u) return K_YELLOW; // sticky past events
+    return K_GREEN;
 }
 
 void map_regs()
@@ -326,6 +418,8 @@ std::string errstat_string(uint32_t v)
     return s.empty() ? "none" : s;
 }
 
+bool errstat_is_clean(uint32_t v) { return (v & ~0x1000u) == 0; }
+
 std::vector<int> page_sources(int page)
 {
     if (page == 1)
@@ -387,6 +481,311 @@ const char* counter_name(int id)
     return (id >= 0 && id < n) ? counters[id].desc : "unknown";
 }
 
+// Short, stable labels for the live view only. Full descriptions are kept in
+// --once / --all-counters.
+const char* counter_short(int id)
+{
+    static const char* names[30] = {
+        "FEP no-pixels", "FEP valid prim", "FEP clipped quads", "FEP valid quads",
+        "TLB stencil fail", "TLB Z+stencil fail", "TLB Z+stencil pass", "TLB zero coverage",
+        "TLB non-zero cov", "TLB color write", "PTB offscreen", "PTB clipped",
+        "PSE reversed", "QPU idle cycles", "QPU vertex cycles", "QPU fragment cyc",
+        "QPU valid cycles", "QPU TMU stall", "QPU scoreboard st", "QPU varying stall",
+        "QPU i-cache hits", "QPU i-cache miss", "QPU u-cache hits", "QPU u-cache miss",
+        "TMU texture quads", "TMU cache misses", "VPM VDW stall", "VPM VCD stall",
+        "L2C hits", "L2C misses"};
+    return (id >= 0 && id < 30) ? names[id] : "unknown";
+}
+
+std::vector<std::string> packed(const std::string& label, const std::vector<std::string>& chunks,
+    int width)
+{
+    std::vector<std::string> out;
+    if (width < 10) width = 10;
+    const size_t lw = 8;
+    std::string prefix = colorize(K_CYAN, pad_visible(label, lw)) + " ";
+    std::string indent(lw + 1, ' ');
+    std::string cur = prefix;
+    bool has = false;
+    for (const auto& ch : chunks)
+    {
+        if (ch.empty()) continue;
+        if (has && visible_len(cur) + 2 + visible_len(ch) > static_cast<size_t>(width))
+        {
+            out.push_back(clip_vis(cur, static_cast<size_t>(width)));
+            cur = indent + ch;
+        }
+        else
+        {
+            if (has) cur += "  ";
+            cur += ch;
+        }
+        has = true;
+    }
+    out.push_back(clip_vis(cur, static_cast<size_t>(width)));
+    return out;
+}
+
+void append(std::vector<std::string>& dst, const std::vector<std::string>& src)
+{
+    dst.insert(dst.end(), src.begin(), src.end());
+}
+
+std::string section_line(const std::string& title, int width)
+{
+    std::string s = colorize(K_HEAD, title);
+    const size_t n = visible_len(s);
+    if (n + 2 < static_cast<size_t>(width))
+        s += colorize(K_DIM, " " + std::string(static_cast<size_t>(width) - n - 1, '-'));
+    return clip_vis(s, static_cast<size_t>(width));
+}
+
+std::vector<std::string> system_lines(const SysData& s, int width)
+{
+    std::vector<std::string> b;
+    const uint32_t thr = static_cast<uint32_t>(strtoul(s.throttle.c_str(), nullptr, 16));
+
+    append(b, packed("status", {
+        s.time,
+        "temp " + colorize(temp_color(s.temp), norm_temp(s.temp)),
+        "thr " + colorize(throttle_color(thr), s.throttle + " (" + s.throttle_decoded + ")")},
+        width));
+
+    append(b, packed("clocks", {
+        "arm " + mhz_from_hz(s.arm_clk),
+        "core " + mhz_from_hz(s.core_clk),
+        "v3d " + mhz_from_hz(s.v3d_clk),
+        "h264 " + mhz_from_hz(s.h264_clk),
+        "isp " + mhz_from_hz(s.isp_clk),
+        "pixel " + mhz_from_hz(s.pixel_clk),
+        "hdmi " + mhz_from_hz(s.hdmi_clk),
+        "vec " + mhz_from_hz(s.vec_clk),
+        "emmc " + mhz_from_hz(s.emmc_clk)}, width));
+
+    append(b, packed("volts", {
+        "core " + s.volts_core,
+        "sdram_c " + s.volts_sdram}, width));
+
+    append(b, packed("memory", {
+        "gpu " + mem_with_units(s.gpu_mem),
+        "arm " + mem_with_units(s.arm_mem),
+        cma_units(s.cma)}, width));
+
+    append(b, packed("power", {
+        "v3d " + s.v3d_state + " / " + s.v3d_control,
+        "undervolt " + colorize(s.undervolt == "0" ? K_GREEN : K_RED, s.undervolt.empty() ? "n/a" : s.undervolt),
+        "hvs underrun " + colorize(s.hvs_underrun == "0" ? K_GREEN : K_RED, s.hvs_underrun.empty() ? "n/a" : s.hvs_underrun),
+        s.clients}, width));
+
+    append(b, packed("display", {
+        "drm " + (s.drm.empty() ? std::string("n/a") : s.drm),
+        "hdmi " + (s.hdmi_status.empty() ? std::string("n/a") : s.hdmi_status) + " " + s.hdmi_mode,
+        "bo " + (s.bo_stats.empty() ? std::string("none") : s.bo_stats)}, width));
+    return b;
+}
+
+std::vector<std::string> qpu_lines(const QpuData& q, int width)
+{
+    std::vector<std::string> b;
+    if (!q.powered)
+    {
+        b.push_back(colorize(K_RED, "V3D POWERED OFF (0xdeadbeef)"));
+        b.push_back("start vc4cl-v3d-power or write on to power/control");
+        return b;
+    }
+    const uint32_t queue = q.srqcs & 0x3F;
+    const uint32_t requests = (q.srqcs >> 8) & 0xFF;
+    const uint32_t done = (q.srqcs >> 16) & 0xFF;
+    const uint32_t qerr = (q.srqcs >> 7) & 1;
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%d slices x %d QPUs = %d", q.slices, q.qpus_per_slice, q.qpus);
+    const std::string slices = buf;
+    snprintf(buf, sizeof(buf), "%d TMUs", q.tmus);
+    const std::string tmus = buf;
+    snprintf(buf, sizeof(buf), "%d semaphores", q.semaphores);
+    const std::string sem = buf;
+    snprintf(buf, sizeof(buf), "VPM %d KiB", q.vpm_kb);
+    const std::string vpm = buf;
+    snprintf(buf, sizeof(buf), "HDR %d", q.hdr);
+    const std::string hdr = buf;
+    snprintf(buf, sizeof(buf), "reserved %u B", (q.vpmbase & 0x1F) * 256);
+
+    append(b, packed("ident", {
+        "rev " + std::to_string(q.revision), slices, tmus, sem, vpm, hdr}, width));
+    append(b, packed("regs", {
+        "IDENT0 " + hex32(q.ident0), "IDENT1 " + hex32(q.ident1), "IDENT2 " + hex32(q.ident2)}, width));
+    append(b, packed("queue", {
+        "SRQCS " + hex32(q.srqcs),
+        "queue " + std::to_string(queue),
+        "req " + std::to_string(requests),
+        "done " + std::to_string(done),
+        "qerr " + colorize(qerr ? K_RED : K_GREEN, std::to_string(qerr))}, width));
+    append(b, packed("pointers", {
+        "SRQPC " + hex32(q.srqpc), "SRQUA " + hex32(q.srqua), "SRQUL " + hex32(q.srqul)}, width));
+    append(b, packed("vpm", {
+        "VPMBASE " + hex32(q.vpmbase), buf, "VPACNTL " + hex32(q.vpacntl)}, width));
+    append(b, packed("sched", {
+        "SQRSV0 " + hex32(q.sqrsv0), "SQRSV1 " + hex32(q.sqrsv1), "SQCNTL " + hex32(q.sqcntl)}, width));
+    append(b, packed("irq", {
+        "INTCTL " + hex32(q.intctl), "INTENA " + hex32(q.intena), "INTDIS " + hex32(q.intdis)}, width));
+    append(b, packed("perf", {
+        "PCTRE " + hex32(q.pctre), "PCTRC " + hex32(q.pctrc),
+        "L2CACTL " + hex32(q.l2cactl), "SLCACTL " + hex32(q.slcactl)}, width));
+    append(b, packed("errors", {
+        "ERRSTAT " + hex32(q.errstat),
+        colorize(errstat_is_clean(q.errstat) ? K_GREEN : K_RED, errstat_string(q.errstat))}, width));
+    return b;
+}
+
+void utilization_values(const std::vector<CounterValue>& counters, double c[7], double& total)
+{
+    for (int i = 0; i < 7; ++i) c[i] = 0;
+    for (const auto& v : counters)
+        if (v.source >= 13 && v.source <= 19 && !v.powered_off)
+            c[v.source - 13] += v.value;
+    total = 0;
+    for (int i = 0; i < 7; ++i) total += c[i];
+    if (total <= 0) { c[0] = 1; total = 1; }
+}
+
+std::string make_bar(const std::string& label, double pct, int width)
+{
+    pct = std::max(0.0, std::min(100.0, pct));
+    int filled = static_cast<int>(pct / 100.0 * width + 0.5);
+    std::string bar = "[";
+    bar += std::string(filled, '#');
+    bar += std::string(std::max(0, width - filled), '.');
+    bar += "]";
+    const char* c = K_GREEN;
+    if (pct >= 80.0) c = K_RED;
+    else if (pct >= 50.0) c = K_YELLOW;
+    char pbuf[32];
+    snprintf(pbuf, sizeof(pbuf), " %5.1f%%", pct);
+    return label + " " + colorize(c, bar) + pbuf;
+}
+
+std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width)
+{
+    static const char* labels[7] = {"Idle", "Vertex", "Fragment", "Valid", "Stall TMU", "Stall SB", "Stall Vary"};
+    double c[7];
+    double total = 0;
+    utilization_values(counters, c, total);
+    std::vector<std::string> b;
+    const bool narrow = width < 96;
+    const int barw = narrow ? 14 : std::max(16, std::min(30, width - 28));
+    if (narrow)
+    {
+        std::vector<std::string> chunks;
+        for (int i = 0; i < 7; ++i)
+        {
+            char pct[16];
+            snprintf(pct, sizeof(pct), "%.1f%%", c[i] / total * 100.0);
+            chunks.push_back(std::string(labels[i]) + " " + pct);
+        }
+        // pack percentage summary first, then small bars two per line
+        std::string line;
+        for (const auto& ch : chunks)
+        {
+            if (!line.empty() && visible_len(line) + 3 + visible_len(ch) > static_cast<size_t>(width))
+            {
+                b.push_back(line);
+                line.clear();
+            }
+            if (!line.empty()) line += "  ";
+            line += ch;
+        }
+        if (!line.empty()) b.push_back(line);
+        std::string bars;
+        for (int i = 0; i < 7; ++i)
+        {
+            std::string one = make_bar(labels[i], c[i] / total * 100.0, barw);
+            if (!bars.empty() && visible_len(bars) + 3 + visible_len(one) > static_cast<size_t>(width))
+            {
+                b.push_back(bars);
+                bars.clear();
+            }
+            if (!bars.empty()) bars += "  ";
+            bars += one;
+        }
+        if (!bars.empty()) b.push_back(bars);
+    }
+    else
+    {
+        for (int i = 0; i < 7; ++i)
+            b.push_back(make_bar(labels[i], c[i] / total * 100.0, barw));
+    }
+    for (auto& l : b) l = clip_vis(l, static_cast<size_t>(width));
+    return b;
+}
+
+std::string page_title(int page)
+{
+    if (page == 0) return "page 1/3  QPU/GPU primary (13-28)";
+    if (page == 1) return "page 2/3  FEP/TLB/PTB/PSE (0-15)";
+    return "page 3/3  QPU/TMU/VPM/L2C (16-29)";
+}
+
+std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters, int page, int width)
+{
+    std::vector<std::string> b;
+    std::string title = page_title(page) + "  counts";
+    if (visible_len(title) > static_cast<size_t>(width))
+        title = page_title(page);
+    if (visible_len(title) > static_cast<size_t>(width))
+        title = "page " + std::to_string(page + 1) + "/3";
+    b.push_back(colorize(K_DIM, clip_vis(title, static_cast<size_t>(width))));
+    const int name_w = std::max(8, std::min(28, width - 28));
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%-3s %-*s %10s %12s", "ID", name_w, "NAME", "VALUE", "RATE cnt/s");
+    b.push_back(colorize(K_DIM, truncate_plain(buf, static_cast<size_t>(width))));
+    for (const auto& v : counters)
+    {
+        std::string name = truncate_plain(counter_short(v.source), static_cast<size_t>(name_w));
+        if (v.powered_off)
+            snprintf(buf, sizeof(buf), "%-3d %-*s %10s %12s", v.source, name_w, name.c_str(), "POWERED", "-");
+        else
+            snprintf(buf, sizeof(buf), "%-3d %-*s %10u %12.1f", v.source, name_w, name.c_str(), v.value, v.rate);
+        b.push_back(colorize(v.value == 0 || v.powered_off ? K_DIM : K_RESET, buf));
+    }
+    if (page != 0)
+        b.push_back(colorize(K_DIM, "page changed; zero counts are expected for the first sample"));
+    return b;
+}
+
+std::string register_group(int offset)
+{
+    if (offset < 0x00040) return "IDENTITY / GLOBAL / INTERRUPTS";
+    if (offset < 0x00200) return "CONTROL LIST EXECUTOR / PIPELINE";
+    if (offset < 0x00400) return "BINNER MEMORY";
+    if (offset < 0x00500) return "QPU SCHEDULER / QUEUES";
+    if (offset < 0x00600) return "VPM";
+    if (offset < 0x00f00) return "PERFORMANCE COUNTERS";
+    return "DEBUG / ERRORS";
+}
+
+std::vector<std::string> register_lines(int width)
+{
+    std::vector<std::string> b;
+    const int total = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
+    std::string last;
+    char buf[512];
+    for (int i = 0; i < total; ++i)
+    {
+        const std::string group = register_group(registers[i].offset);
+        if (last != group)
+        {
+            b.push_back(colorize(K_HEAD, std::string("-- ") + group + " " +
+                std::string(std::max(1, width - static_cast<int>(group.size()) - 4), '-')));
+            last = group;
+        }
+        snprintf(buf, sizeof(buf), "  %-12s @0x%05x  %-10s  %s", registers[i].name,
+            registers[i].offset, hex32(rd(registers[i].offset)).c_str(),
+            truncate_plain(registers[i].desc, static_cast<size_t>(std::max(10, width - 40))).c_str());
+        b.push_back(buf);
+    }
+    return b;
+}
+
 std::vector<std::string> box(const std::string& title, const std::vector<std::string>& body, int width)
 {
     if (width < 12) width = 12;
@@ -397,9 +796,7 @@ std::vector<std::string> box(const std::string& title, const std::vector<std::st
     out.push_back(colorize(K_CYAN, top));
     for (const auto& b : body)
     {
-        std::string content = b;
-        if (content.find('\033') == std::string::npos)
-            content = truncate_plain(content, static_cast<size_t>(std::max(4, width - 4)));
+        std::string content = clip_vis(b, static_cast<size_t>(std::max(4, width - 4)));
         std::string line = "| " + content;
         const size_t n = visible_len(line);
         if (static_cast<int>(n) < width - 1) line += std::string(width - 1 - n, ' ');
@@ -422,145 +819,6 @@ void compose_columns(const std::vector<std::string>& left, const std::vector<std
     }
 }
 
-std::string make_bar(const std::string& label, double pct, int width)
-{
-    pct = std::max(0.0, std::min(100.0, pct));
-    int filled = static_cast<int>(pct / 100.0 * width + 0.5);
-    std::string bar = "[";
-    bar += std::string(filled, '#');
-    bar += std::string(std::max(0, width - filled), '.');
-    bar += "]";
-    const char* c = K_GREEN;
-    if (pct >= 80.0) c = K_RED;
-    else if (pct >= 50.0) c = K_YELLOW;
-    char pbuf[32];
-    snprintf(pbuf, sizeof(pbuf), " %5.1f%%", pct);
-    return std::string(label) + " " + colorize(c, bar) + pbuf;
-}
-
-std::vector<std::string> system_panel(const SysData& s, int width)
-{
-    std::vector<std::string> b;
-    b.push_back("time     " + truncate_plain(s.time, width - 12));
-    b.push_back("temp     " + s.temp + "   throttle " + s.throttle + " (" + s.throttle_decoded + ")");
-    b.push_back("clocks   arm " + s.arm_clk + "  core " + s.core_clk + "  v3d " + s.v3d_clk);
-    b.push_back("codecs   h264 " + s.h264_clk + "  isp " + s.isp_clk + "  pixel " + s.pixel_clk);
-    b.push_back("display  hdmi " + s.hdmi_clk + "  vec " + s.vec_clk + "  emmc " + s.emmc_clk);
-    b.push_back("volts    core " + s.volts_core + "  sdram_c " + s.volts_sdram);
-    b.push_back("memory   gpu " + s.gpu_mem + "  arm " + s.arm_mem + "  " + truncate_plain(s.cma, width - 20));
-    b.push_back("v3d      " + s.v3d_state + " / " + s.v3d_control + "  undervolt " + s.undervolt);
-    b.push_back("drm      " + truncate_plain(s.drm, width - 12));
-    b.push_back("hdmi     " + s.hdmi_status + " " + truncate_plain(s.hdmi_mode, width - 20));
-    b.push_back("hvs      underrun " + s.hvs_underrun + "  bo " +
-        (s.bo_stats.empty() ? std::string("none") : truncate_plain(s.bo_stats, width - 26)));
-    b.push_back("clients  " + s.clients);
-    return b;
-}
-
-std::vector<std::string> qpu_panel(const QpuData& q, int width)
-{
-    (void)width; // lines are clipped by box()
-    std::vector<std::string> b;
-    char buf[256];
-    if (!q.powered)
-    {
-        b.push_back(colorize(K_RED, "V3D POWERED OFF (0xdeadbeef)"));
-        b.push_back("start vc4cl-v3d-power or write on to power/control");
-        return b;
-    }
-    snprintf(buf, sizeof(buf), "ident    %d sl x %d qpu = %d qpu / %d tmu / %d sem",
-        q.slices, q.qpus_per_slice, q.qpus, q.tmus, q.semaphores);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "config   vpm %dK  hdr %d  rev %d", q.vpm_kb, q.hdr, q.revision);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "ident0   0x%08x  ident1 0x%08x", q.ident0, q.ident1);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "srqcs    0x%08x  queue %u  req %u  done %u  qerr %u",
-        q.srqcs, q.srqcs & 0x3F, (q.srqcs >> 8) & 0xFF, (q.srqcs >> 16) & 0xFF, (q.srqcs >> 7) & 1);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "vpmbase  0x%08x  reserved %u B of %dK  vpacntl 0x%08x",
-        q.vpmbase, (q.vpmbase & 0x1F) * 256, q.vpm_kb, q.vpacntl);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "sqrsv    0x%08x / 0x%08x", q.sqrsv0, q.sqrsv1);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "srqpc    0x%08x  srqua 0x%08x", q.srqpc, q.srqua);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "srqul    0x%08x", q.srqul);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "intctl   0x%08x  intena 0x%08x", q.intctl, q.intena);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "intdis   0x%08x  pctre 0x%08x", q.intdis, q.pctre);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "pctrc    0x%08x  l2c 0x%08x", q.pctrc, q.l2cactl);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "slc      0x%08x", q.slcactl);
-    b.push_back(buf);
-    snprintf(buf, sizeof(buf), "errstat  0x%08x  %s", q.errstat, errstat_string(q.errstat).c_str());
-    b.push_back(buf);
-    return b;
-}
-
-std::vector<std::string> utilization_panel(const std::vector<CounterValue>& counters, int width)
-{
-    double c[7] = {0, 0, 0, 0, 0, 0, 0};
-    for (const auto& v : counters)
-    {
-        if (v.source >= 13 && v.source <= 19 && !v.powered_off)
-            c[v.source - 13] += v.value;
-    }
-    double total = c[0] + c[1] + c[2] + c[3] + c[4] + c[5] + c[6];
-    if (total <= 0) { c[0] = 1; total = 1; }
-    const char* labels[7] = {"Idle", "Vertex", "Fragment", "Valid", "Stall TMU", "Stall SB", "Stall Vary"};
-    int barw = std::max(10, std::min(30, width - 24));
-    std::vector<std::string> b;
-    for (int i = 0; i < 7; ++i)
-        b.push_back(make_bar(labels[i], c[i] / total * 100.0, barw));
-    return b;
-}
-
-std::vector<std::string> counters_panel(const std::vector<CounterValue>& counters, int page,
-    int width, int rows)
-{
-    std::vector<std::string> b;
-    char buf[256];
-    snprintf(buf, sizeof(buf), "page %d/3   %s", page + 1,
-        page == 0 ? "QPU/GPU primary (13-28)" : (page == 1 ? "FEP/TLB/PTB/PSE (0-15)" : "QPU/TMU/VPM/L2C (16-29)"));
-    b.push_back(colorize(K_DIM, buf));
-    const int name_w = std::max(12, width - 38);
-    snprintf(buf, sizeof(buf), "%-3s %-*s %12s %12s", "ID", name_w, "NAME", "VALUE", "RATE/s");
-    b.push_back(colorize(K_DIM, truncate_plain(buf, static_cast<size_t>(width - 4))));
-    for (const auto& v : counters)
-    {
-        if (static_cast<int>(b.size()) >= rows) break;
-        std::string name = truncate_plain(counter_name(v.source), static_cast<size_t>(name_w));
-        if (v.powered_off)
-            snprintf(buf, sizeof(buf), "%-3d %-*s %12s", v.source, name_w, name.c_str(), "POWERED");
-        else
-            snprintf(buf, sizeof(buf), "%-3d %-*s %12u %12.1f", v.source, name_w, name.c_str(), v.value, v.rate);
-        b.push_back(buf);
-    }
-    if (page != 0)
-        b.push_back(colorize(K_DIM, "counter page changed; zero counts are expected for the first sample"));
-    return b;
-}
-
-std::vector<std::string> register_panel(int scroll, int width, int rows)
-{
-    std::vector<std::string> b;
-    const int total = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
-    char buf[256];
-    snprintf(buf, sizeof(buf), "registers %d..%d of %d   j/k scroll, g return",
-        std::min(scroll, total), std::min(scroll + rows - 2, total), total);
-    b.push_back(colorize(K_DIM, buf));
-    for (int i = scroll; i < total && static_cast<int>(b.size()) < rows; ++i)
-    {
-        snprintf(buf, sizeof(buf), "%-12s 0x%08x  %s", registers[i].name, rd(registers[i].offset),
-            truncate_plain(registers[i].desc, static_cast<size_t>(std::max(10, width - 32))).c_str());
-        b.push_back(buf);
-    }
-    return b;
-}
-
 void get_terminal_size(int& rows, int& cols)
 {
     struct winsize ws;
@@ -573,6 +831,10 @@ void get_terminal_size(int& rows, int& cols)
     {
         rows = 40;
         cols = 120;
+        const char* er = getenv("LINES");
+        const char* ec = getenv("COLUMNS");
+        if (er && atoi(er) > 0) rows = atoi(er);
+        if (ec && atoi(ec) > 0) cols = atoi(ec);
     }
 }
 
@@ -582,82 +844,237 @@ void write_frame(const std::string& frame)
     fflush(stdout);
 }
 
+std::vector<std::string> legend_lines()
+{
+    return {
+        colorize(K_GREEN, "green") + " ok  " + colorize(K_YELLOW, "yellow") + " warn  " +
+            colorize(K_RED, "red") + " error",
+        colorize(K_DIM, "dim") + " idle/zero",
+        "keys  q quit  a/[] page",
+        "      g regs  j/k scroll",
+        "      p pause  +/- int  h help",
+        "flags --once  --all-counters",
+        "      --regs  --poll [ms]",
+        "      --frame  --no-color",
+        "plain: NO_COLOR=1 or piped",
+        "30 counter sources / 3 pages",
+        "rate = counts/s over interval",
+        "QPU counters are 3D-oriented;",
+        "raw compute may leave idle/",
+        "valid at zero.",
+        "Use --poll for scheduler,",
+        "--once/--regs for dumps."};
+}
+
+void compose_three(const std::vector<std::string>& a, const std::vector<std::string>& b,
+    const std::vector<std::string>& c, int wa, int wb, std::vector<std::string>& out)
+{
+    const size_t n = std::max(a.size(), std::max(b.size(), c.size()));
+    for (size_t i = 0; i < n; ++i)
+    {
+        std::string la = i < a.size() ? a[i] : "";
+        std::string lb = i < b.size() ? b[i] : "";
+        std::string lc = i < c.size() ? c[i] : "";
+        out.push_back(pad_visible(la, static_cast<size_t>(wa + 1)) +
+            pad_visible(lb, static_cast<size_t>(wb + 1)) + lc);
+    }
+}
+
+std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
+    const std::vector<CounterValue>& counters, int page, int cols)
+{
+    std::vector<std::string> out;
+    if (cols >= 136)
+    {
+        const int w1 = cols * 35 / 100;
+        const int w2 = cols * 28 / 100;
+        const int w3 = cols - w1 - w2 - 2;
+        std::vector<std::string> c1;
+        append(c1, box("SYSTEM / POWER", system_lines(sys, w1 - 4), w1));
+        append(c1, box("UTILIZATION", utilization_lines(counters, w1 - 4), w1));
+        std::vector<std::string> c2;
+        append(c2, box("QPU / QUEUES / VPM", qpu_lines(qpu, w2 - 4), w2));
+        std::vector<std::string> c3;
+        append(c3, box("COUNTERS", counter_lines(counters, page, w3 - 4), w3));
+        append(c3, box("LEGEND / HELP", legend_lines(), w3));
+        compose_three(c1, c2, c3, w1, w2, out);
+        return out;
+    }
+
+    const int left_w = std::max(46, std::min(68, cols * 46 / 100));
+    const int right_w = cols - left_w - 1;
+    std::vector<std::string> left;
+    append(left, box("SYSTEM / POWER", system_lines(sys, left_w - 4), left_w));
+    append(left, box("QPU / QUEUES / VPM", qpu_lines(qpu, left_w - 4), left_w));
+    append(left, box("UTILIZATION", utilization_lines(counters, left_w - 4), left_w));
+    std::vector<std::string> right;
+    append(right, box("COUNTERS", counter_lines(counters, page, right_w - 4), right_w));
+    append(right, box("LEGEND / HELP", legend_lines(), right_w));
+    compose_columns(left, right, left_w, 1, out);
+    return out;
+}
+
+std::vector<std::string> narrow_content(const SysData& sys, const QpuData& qpu,
+    const std::vector<CounterValue>& counters, int page, int cols, int rows)
+{
+    std::vector<std::string> out;
+    const int w = cols - 2;
+    const bool roomy = rows >= 30;
+    if (roomy) out.push_back(section_line("STATUS", cols));
+    for (const auto& l : system_lines(sys, w)) out.push_back(" " + l);
+    if (roomy) out.push_back(section_line("QPU / QUEUES / VPM", cols));
+    for (const auto& l : qpu_lines(qpu, w)) out.push_back(" " + l);
+    out.push_back(section_line("UTILIZATION", cols));
+    for (const auto& l : utilization_lines(counters, w)) out.push_back(" " + l);
+    out.push_back(section_line("COUNTERS", cols));
+    for (const auto& l : counter_lines(counters, page, w)) out.push_back(" " + l);
+    return out;
+}
+
+std::string build_header(const SysData& sys, const QpuData& qpu, bool paused, int interval_ms, int cols)
+{
+    const uint32_t thr = static_cast<uint32_t>(strtoul(sys.throttle.c_str(), nullptr, 16));
+    std::string stamp = sys.time;
+    if (cols < 70)
+    {
+        const auto sp = stamp.find(' ');
+        if (sp != std::string::npos) stamp = stamp.substr(sp + 1);
+    }
+    std::string h = colorize(K_BOLD, "VC4TOP");
+    h += "  " + stamp;
+    h += "  " + (qpu.powered ? colorize(K_GREEN, "V3D ON") : colorize(K_RED, "V3D OFF"));
+    h += "  " + colorize(temp_color(sys.temp), norm_temp(sys.temp));
+    h += "  thr " + colorize(throttle_color(thr), cols >= 70
+        ? sys.throttle + " (" + sys.throttle_decoded + ")" : sys.throttle);
+    h += "  " + std::to_string(interval_ms) + "ms";
+    if (paused) h += colorize(K_MAGENTA, "  PAUSED");
+    return pad_visible(clip_vis(h, static_cast<size_t>(cols)), static_cast<size_t>(cols));
+}
+
+std::string build_footer(bool regs_view, int first, int last, int total, int cols)
+{
+    std::string keys;
+    if (cols >= 110)
+        keys = "q quit  a/[] page  g regs  j/k scroll  p pause  +/- int  h help/flags";
+    else if (cols >= 80)
+        keys = "q quit  a page  g regs  j/k scroll  p pause  +/- int  h help";
+    else
+        keys = "q quit  a page  g regs  j/k  p pause  +/-  h help";
+    std::string range;
+    if (total > 0 && (first > 1 || last < total))
+    {
+        char b[64];
+        snprintf(b, sizeof(b), "  [%d-%d/%d]", first, last, total);
+        range = b;
+    }
+    (void)regs_view;
+    // Prefer keeping the range visible: drop trailing key hints if needed.
+    std::string f = keys + range;
+    while (visible_len(f) > static_cast<size_t>(cols) && keys.size() > 12)
+    {
+        auto p = keys.rfind("  ");
+        if (p == std::string::npos) break;
+        keys = keys.substr(0, p);
+        f = keys + range;
+    }
+    return pad_visible(clip_vis(colorize(K_DIM, f), static_cast<size_t>(cols)), static_cast<size_t>(cols));
+}
+
 void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<CounterValue>& counters,
-    int page, bool regs_view, int reg_scroll, bool paused)
+    int page, bool regs_view, int& reg_scroll, bool paused, int interval_ms, int& view_scroll)
 {
     int rows = 40, cols = 120;
     get_terminal_size(rows, cols);
-    if (rows < 12) rows = 12;
+    if (rows < 10) rows = 10;
     if (cols < 60) cols = 60;
 
-    std::vector<std::string> out;
-    char buf[512];
+    const bool tty = isatty(STDOUT_FILENO) != 0;
+    const int avail = std::max(1, rows - 2);
+    std::vector<std::string> content;
+    int first = 0, last = 0, total = 0;
 
-    std::string title = std::string(K_BOLD) + "VC4TOP" + K_RESET + "  " + sys.time + "  " +
-        colorize(K_YELLOW, sys.temp) + "  thr " + sys.throttle + " (" + sys.throttle_decoded + ")  " +
-        (qpu.powered ? colorize(K_GREEN, "V3D ON") : colorize(K_RED, "V3D OFF")) +
-        (paused ? colorize(K_MAGENTA, "  PAUSED") : "");
-    out.push_back(pad_visible(truncate_visible(title, static_cast<size_t>(cols)), static_cast<size_t>(cols)));
-
-    const int content_rows = rows - 2;
     if (regs_view)
     {
-        auto body = register_panel(reg_scroll, cols - 4, content_rows - 2);
-        auto boxed = box("V3D REGISTERS", body, cols);
-        for (const auto& l : boxed) if (static_cast<int>(out.size()) < rows - 1) out.push_back(l);
-    }
-    else if (cols >= 100)
-    {
-        const int left_w = std::max(60, cols * 50 / 100);
-        const int right_w = cols - left_w - 1;
-        auto sys_box = box("SYSTEM / POWER", system_panel(sys, left_w - 4), left_w);
-        auto qpu_box = box("QPU / SCHEDULER / VPM", qpu_panel(qpu, left_w - 4), left_w);
-        auto util_box = box("UTILIZATION", utilization_panel(counters, left_w - 4), left_w);
-        std::vector<std::string> left;
-        left.insert(left.end(), sys_box.begin(), sys_box.end());
-        left.insert(left.end(), qpu_box.begin(), qpu_box.end());
-        left.insert(left.end(), util_box.begin(), util_box.end());
-
-        const int crows = std::max(6, content_rows - 3);
-        auto cnt_box = box("COUNTERS", counters_panel(counters, page, right_w - 4, crows), right_w);
-        std::vector<std::string> right = cnt_box;
-        std::vector<std::string> notes = {
-            "counter pages",
-            "  a / [ / ]  page 1: 13-28 primary",
-            "              page 2: 0-15 FEP/TLB/PTB/PSE",
-            "              page 3: 16-29 QPU/TMU/VPM/L2C",
-            "",
-            "V3D counters are 3D-pipeline oriented.",
-            "Raw QPU compute may leave idle/valid at 0.",
-            "Use --poll for SRQCS/SRQPC activity and",
-            "--once / --regs for the full wide dump.",
-        };
-        auto notes_box = box("NOTES", notes, right_w);
-        right.insert(right.end(), notes_box.begin(), notes_box.end());
-        std::vector<std::string> composed;
-        compose_columns(left, right, left_w, 1, composed);
-        for (const auto& l : composed) if (static_cast<int>(out.size()) < rows - 1) out.push_back(l);
+        auto all = register_lines(cols - 4);
+        total = static_cast<int>(all.size());
+        const int inner = std::max(1, rows - 4);
+        const int max_scroll = std::max(0, total - inner);
+        if (reg_scroll > max_scroll) reg_scroll = max_scroll;
+        if (reg_scroll < 0) reg_scroll = 0;
+        const int end = std::min(total, reg_scroll + inner);
+        std::vector<std::string> slice(all.begin() + reg_scroll, all.begin() + end);
+        char title[64];
+        snprintf(title, sizeof(title), "V3D REGISTERS  %d-%d of %d", reg_scroll + 1, end, total);
+        content = box(title, slice, cols);
+        first = reg_scroll + 1;
+        last = end;
     }
     else
     {
-        auto sys_box = box("SYSTEM", system_panel(sys, cols - 4), cols);
-        auto qpu_box = box("QPU", qpu_panel(qpu, cols - 4), cols);
-        auto util_box = box("UTILIZATION", utilization_panel(counters, cols - 4), cols);
-        auto cnt_box = box("COUNTERS", counters_panel(counters, page, cols - 4, 10), cols);
-        for (const auto* v : {&sys_box, &qpu_box, &util_box, &cnt_box})
-            for (const auto& l : *v) if (static_cast<int>(out.size()) < rows - 1) out.push_back(l);
+        content = (cols >= 100)
+            ? wide_content(sys, qpu, counters, page, cols)
+            : narrow_content(sys, qpu, counters, page, cols, rows);
+        total = static_cast<int>(content.size());
+        const int max_scroll = std::max(0, total - avail);
+        if (view_scroll > max_scroll) view_scroll = max_scroll;
+        if (view_scroll < 0) view_scroll = 0;
+        const int end = std::min(total, view_scroll + avail);
+        content = std::vector<std::string>(content.begin() + view_scroll, content.begin() + end);
+        first = view_scroll + 1;
+        last = end;
     }
 
-    snprintf(buf, sizeof(buf), "q quit  a/[ ] counters  g registers  p pause  +/- interval  h help  %s",
-        regs_view ? "j/k scroll" : "");
-    out.push_back(pad_visible(truncate_visible(colorize(K_DIM, buf), static_cast<size_t>(cols)), static_cast<size_t>(cols)));
+    std::vector<std::string> out;
+    out.push_back(build_header(sys, qpu, paused, interval_ms, cols));
+    for (const auto& l : content) out.push_back(pad_visible(clip_vis(l, static_cast<size_t>(cols)), static_cast<size_t>(cols)));
+    out.push_back(build_footer(regs_view, first, last, total, cols));
 
     while (static_cast<int>(out.size()) < rows) out.push_back(std::string(cols, ' '));
     if (static_cast<int>(out.size()) > rows) out.resize(rows);
 
-    std::string frame = "\033[H";
-    for (const auto& l : out) frame += pad_visible(l, static_cast<size_t>(cols)) + "\033[K\n";
+    std::string frame;
+    if (tty) frame = "\033[H";
+    for (const auto& l : out) frame += pad_visible(l, static_cast<size_t>(cols)) + (tty ? "\033[K\n" : "\n");
     write_frame(frame);
+}
+
+void print_sub(const std::string& title)
+{
+    std::string s = "-- " + title + " ";
+    if (s.size() < 74) s += std::string(74 - s.size(), '-');
+    printf("%s\n", s.c_str());
+}
+
+void row(const char* label, const std::string& value)
+{
+    printf("%-16s %s\n", label, value.c_str());
+}
+
+void print_counters(const std::vector<CounterValue>& c)
+{
+    printf("  %2s  %-66s %10s %12s\n", "ID", "NAME", "VALUE", "RATE");
+    printf("  %2s  %-66s %10s %12s\n", "", "", "count", "count/s");
+    printf("  %2s  %-66s %10s %12s\n", "--", "------------------------------------------------------------------",
+        "----------", "------------");
+    for (const auto& v : c)
+        printf("  %2d  %-66s %10u %12.1f\n", v.source, counter_name(v.source), v.value, v.rate);
+}
+
+void print_register_dump()
+{
+    const int total = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
+    std::string last;
+    for (int i = 0; i < total; ++i)
+    {
+        const std::string group = register_group(registers[i].offset);
+        if (last != group)
+        {
+            printf("\n  -- %s --\n", group.c_str());
+            last = group;
+        }
+        printf("  %-12s @0x%05x  0x%08x  %s\n", registers[i].name, registers[i].offset,
+            rd(registers[i].offset), registers[i].desc);
+    }
 }
 
 void print_snapshot(bool all_counters, bool regs)
@@ -667,56 +1084,76 @@ void print_snapshot(bool all_counters, bool regs)
     collect_sys(sys);
     collect_qpu(qpu);
 
+    printf("VC4TOP - VideoCore IV / V3D wide snapshot\n");
     printf("============================================================\n");
-    printf(" VC4TOP - VideoCore IV / V3D wide snapshot\n");
-    printf("============================================================\n");
+
     printf("[ SYSTEM / POWER ]\n");
-    printf("time:           %s\n", sys.time.c_str());
-    printf("temp:           %s\n", sys.temp.c_str());
-    printf("throttled:      %s (%s)\n", sys.throttle.c_str(), sys.throttle_decoded.c_str());
-    printf("core volts:     %s\n", sys.volts_core.c_str());
-    printf("sdram_c volts:  %s\n", sys.volts_sdram.c_str());
-    printf("arm clock:      %s Hz\n", sys.arm_clk.c_str());
-    printf("core clock:     %s Hz\n", sys.core_clk.c_str());
-    printf("v3d clock:      %s Hz\n", sys.v3d_clk.c_str());
-    printf("h264 clock:     %s Hz\n", sys.h264_clk.c_str());
-    printf("isp clock:      %s Hz\n", sys.isp_clk.c_str());
-    printf("pixel clock:    %s Hz\n", sys.pixel_clk.c_str());
-    printf("hdmi clock:     %s Hz\n", sys.hdmi_clk.c_str());
-    printf("vec clock:      %s Hz\n", sys.vec_clk.c_str());
-    printf("emmc clock:     %s Hz\n", sys.emmc_clk.c_str());
-    printf("gpu mem:        %s\n", sys.gpu_mem.c_str());
-    printf("arm mem:        %s\n", sys.arm_mem.c_str());
-    printf("cma:            %s\n", sys.cma.c_str());
-    printf("v3d power:      %s / %s\n", sys.v3d_state.c_str(), sys.v3d_control.c_str());
-    printf("undervoltage:   %s\n", sys.undervolt.c_str());
-    printf("hvs underrun:   %s\n", sys.hvs_underrun.c_str());
-    printf("drm:            %s\n", sys.drm.c_str());
-    printf("hdmi:           %s %s\n", sys.hdmi_status.c_str(), sys.hdmi_mode.c_str());
-    printf("bo_stats:       %s\n", sys.bo_stats.c_str());
+    print_sub("time & thermal");
+    row("time:", sys.time);
+    row("temp:", norm_temp(sys.temp));
+    row("throttled:", sys.throttle + " (" + sys.throttle_decoded + ")");
+    print_sub("voltages");
+    row("core volts:", sys.volts_core);
+    row("sdram_c volts:", sys.volts_sdram);
+    print_sub("clocks (Hz / MHz)");
+    row("arm clock:", clock_with_units(sys.arm_clk));
+    row("core clock:", clock_with_units(sys.core_clk));
+    row("v3d clock:", clock_with_units(sys.v3d_clk));
+    row("h264 clock:", clock_with_units(sys.h264_clk));
+    row("isp clock:", clock_with_units(sys.isp_clk));
+    row("pixel clock:", clock_with_units(sys.pixel_clk));
+    row("hdmi clock:", clock_with_units(sys.hdmi_clk));
+    row("vec clock:", clock_with_units(sys.vec_clk));
+    row("emmc clock:", clock_with_units(sys.emmc_clk));
+    print_sub("memory");
+    row("gpu mem:", mem_with_units(sys.gpu_mem));
+    row("arm mem:", mem_with_units(sys.arm_mem));
+    row("cma:", cma_units(sys.cma));
+    print_sub("power & display");
+    row("v3d power:", sys.v3d_state + " / " + sys.v3d_control);
+    row("undervoltage:", sys.undervolt.empty() ? "n/a" : sys.undervolt + (sys.undervolt == "0" ? " (ok)" : " (ALARM)"));
+    row("hvs underrun:", sys.hvs_underrun.empty() ? "n/a" : sys.hvs_underrun + " (events)");
+    row("drm:", sys.drm);
+    row("hdmi:", sys.hdmi_status + " " + sys.hdmi_mode);
+    row("bo_stats:", sys.bo_stats);
+
     printf("\n[ QPU / SCHEDULER ]\n");
-    printf("IDENT0:         0x%08x\n", qpu.ident0);
-    printf("IDENT1:         0x%08x\n", qpu.ident1);
-    printf("IDENT2:         0x%08x\n", qpu.ident2);
-    printf("revision:       %d\n", qpu.revision);
-    printf("slices:         %d\n", qpu.slices);
-    printf("QPUs/slice:     %d (total %d)\n", qpu.qpus_per_slice, qpu.qpus);
-    printf("TMUs/slice:     %d (total %d)\n", qpu.tmus_per_slice, qpu.tmus);
-    printf("semaphores:     %d\n", qpu.semaphores);
-    printf("VPM size:       %dK\n", qpu.vpm_kb);
-    printf("HDR support:    %d\n", qpu.hdr);
-    printf("SRQCS:          0x%08x queue=%u requests=%u completed=%u qerr=%u\n",
-        qpu.srqcs, qpu.srqcs & 0x3F, (qpu.srqcs >> 8) & 0xFF, (qpu.srqcs >> 16) & 0xFF, (qpu.srqcs >> 7) & 1);
-    printf("VPMBASE:        0x%08x reserved=%u bytes of %dK\n",
-        qpu.vpmbase, (qpu.vpmbase & 0x1F) * 256, qpu.vpm_kb);
-    printf("VPACNTL:        0x%08x\n", qpu.vpacntl);
-    printf("SQRSV0/1:       0x%08x / 0x%08x\n", qpu.sqrsv0, qpu.sqrsv1);
-    printf("SQCNTL:         0x%08x\n", qpu.sqcntl);
-    printf("SRQPC/SRQUA:    0x%08x / 0x%08x (len 0x%08x)\n", qpu.srqpc, qpu.srqua, qpu.srqul);
-    printf("INTCTL/ENA/DIS: 0x%08x / 0x%08x / 0x%08x\n", qpu.intctl, qpu.intena, qpu.intdis);
-    printf("PCTRE/PCTRC:    0x%08x / 0x%08x\n", qpu.pctre, qpu.pctrc);
-    printf("L2CACTL/SLCACTL:0x%08x / 0x%08x\n", qpu.l2cactl, qpu.slcactl);
-    printf("ERRSTAT:        0x%08x %s\n", qpu.errstat, errstat_string(qpu.errstat).c_str());
+    print_sub("identity & configuration");
+    row("IDENT0:", hex32(qpu.ident0));
+    row("IDENT1:", hex32(qpu.ident1));
+    row("IDENT2:", hex32(qpu.ident2));
+    row("revision:", std::to_string(qpu.revision));
+    row("slices:", std::to_string(qpu.slices) + " slices");
+    row("QPUs/slice:", std::to_string(qpu.qpus_per_slice) + " QPUs/slice (total " +
+        std::to_string(qpu.qpus) + " QPUs)");
+    row("TMUs/slice:", std::to_string(qpu.tmus_per_slice) + " TMUs/slice (total " +
+        std::to_string(qpu.tmus) + " TMUs)");
+    row("semaphores:", std::to_string(qpu.semaphores) + " semaphores");
+    row("VPM size:", std::to_string(qpu.vpm_kb) + " KiB");
+    row("HDR support:", std::to_string(qpu.hdr) + (qpu.hdr ? " (yes)" : " (no)"));
+    print_sub("queues & scheduler");
+    {
+        char b[192];
+        snprintf(b, sizeof(b), "%s queue=%u requests=%u completed=%u qerr=%u", hex32(qpu.srqcs).c_str(),
+            qpu.srqcs & 0x3F, (qpu.srqcs >> 8) & 0xFF, (qpu.srqcs >> 16) & 0xFF, (qpu.srqcs >> 7) & 1);
+        row("SRQCS:", b);
+    }
+    {
+        char b[192];
+        snprintf(b, sizeof(b), "%s reserved=%u bytes of %d KiB", hex32(qpu.vpmbase).c_str(),
+            (qpu.vpmbase & 0x1F) * 256, qpu.vpm_kb);
+        row("VPMBASE:", b);
+    }
+    row("VPACNTL:", hex32(qpu.vpacntl));
+    row("SQRSV0/1:", hex32(qpu.sqrsv0) + " / " + hex32(qpu.sqrsv1));
+    row("SQCNTL:", hex32(qpu.sqcntl));
+    row("SRQPC/SRQUA:", hex32(qpu.srqpc) + " / " + hex32(qpu.srqua) + " (len " + hex32(qpu.srqul) + ")");
+    print_sub("interrupts, counters & caches");
+    row("INTCTL/ENA/DIS:", hex32(qpu.intctl) + " / " + hex32(qpu.intena) + " / " + hex32(qpu.intdis));
+    row("PCTRE/PCTRC:", hex32(qpu.pctre) + " / " + hex32(qpu.pctrc));
+    row("L2CACTL/SLCACTL:", hex32(qpu.l2cactl) + " / " + hex32(qpu.slcactl));
+    print_sub("errors");
+    row("ERRSTAT:", hex32(qpu.errstat) + " " + errstat_string(qpu.errstat));
     printf("\n");
 
     if (all_counters)
@@ -725,8 +1162,7 @@ void print_snapshot(bool all_counters, bool regs)
         {
             auto c = sample_counters(page, DEFAULT_INTERVAL_MS);
             printf("[ COUNTERS page %d/3 ]\n", page + 1);
-            for (const auto& v : c)
-                printf("  %2d %-70s %10u %12.1f /s\n", v.source, counter_name(v.source), v.value, v.rate);
+            print_counters(c);
             printf("\n");
         }
     }
@@ -734,17 +1170,14 @@ void print_snapshot(bool all_counters, bool regs)
     {
         auto c = sample_counters(0, DEFAULT_INTERVAL_MS);
         printf("[ PRIMARY COUNTERS ]\n");
-        for (const auto& v : c)
-            printf("  %2d %-70s %10u %12.1f /s\n", v.source, counter_name(v.source), v.value, v.rate);
+        print_counters(c);
         printf("\n");
     }
 
     if (regs)
     {
         printf("[ V3D REGISTER DUMP ]\n");
-        const int n = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
-        for (int i = 0; i < n; ++i)
-            printf("  %-12s 0x%08x  %s\n", registers[i].name, rd(registers[i].offset), registers[i].desc);
+        print_register_dump();
     }
 }
 
@@ -817,23 +1250,31 @@ void help_screen()
     int rows = 40, cols = 120;
     get_terminal_size(rows, cols);
     std::vector<std::string> body = {
-        "q          quit",
-        "a / [ ]    cycle counter pages (13-28, 0-15, 16-29)",
-        "g          toggle full V3D register dump",
-        "j / k      scroll the register dump",
-        "p          pause/resume sampling",
-        "+ / -      increase/decrease sample interval",
-        "h          this help",
+        "KEYS",
+        "  q          quit",
+        "  a / [ ]    cycle counter pages (13-28, 0-15, 16-29)",
+        "  g          toggle full V3D register dump",
+        "  j / k      scroll registers (g) or the live view",
+        "  p          pause/resume sampling",
+        "  + / -      increase/decrease sample interval",
+        "  h          this help",
         "",
-        "Width: all 30 counter sources are available on three pages.",
-        "The 16 V3D counters are 3D-pipeline oriented; raw QPU compute",
-        "may leave QPU idle/valid counters at zero. Use --poll for the",
-        "scheduler registers and --once/--regs for wide snapshots.",
+        "FLAGS",
+        "  --once            wide snapshot, primary counters",
+        "  --all-counters    all 30 sources (pages 2/3)",
+        "  --regs            full V3D register map",
+        "  --poll [ms]       CSV scheduler stream",
+        "  --frame           render one TUI frame and exit",
+        "  --no-color        disable ANSI colour",
+        "  NO_COLOR=1        environment equivalent (also piped)",
         "",
-        "Requires root (/dev/mem) and a powered V3D block.",
+        "Values: hex for registers, MHz for clocks, \xC2\xB0\x43 for temperature,",
+        "counts and counts/s for counters, % for utilization.",
+        "30 counter sources are spread over three pages.",
+        "",
         "Any key returns."
     };
-    int w = std::min(cols - 2, 70);
+    int w = std::min(cols - 2, 72);
     auto boxed = box("VC4TOP HELP", body, w);
     std::string frame = "\033[H\033[2J";
     int start = std::max(0, (rows - static_cast<int>(boxed.size())) / 2);
@@ -842,6 +1283,13 @@ void help_screen()
     write_frame(frame);
     unsigned char c;
     while (read(STDIN_FILENO, &c, 1) != 1) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+bool want_color(bool no_color)
+{
+    if (no_color) return false;
+    if (getenv("NO_COLOR") != nullptr) return false;
+    return isatty(STDOUT_FILENO) != 0;
 }
 
 } // namespace
@@ -881,8 +1329,16 @@ int main(int argc, char** argv)
         case 'u': break; // compatibility with the terminal fork; single interval here
         case 'h':
             printf("usage: vc4top [--once] [--all-counters] [--regs] [--poll [ms]]\n");
-            printf("               [--frame] [--no-color] [--interval ms]\n");
-            printf("       vc4top                         realtime TUI\n");
+            printf("               [--frame] [--no-color] [--interval ms]\n\n");
+            printf("  --once           wide snapshot: system, QPU and primary counters\n");
+            printf("  --all-counters   all 30 counter sources (pages 2 and 3)\n");
+            printf("  --regs           append the full V3D register map\n");
+            printf("  --poll [ms]      CSV stream of scheduler registers\n");
+            printf("  --frame          render one TUI frame and exit\n");
+            printf("  --no-color       plain text (same as NO_COLOR=1)\n");
+            printf("  --interval ms    sample interval, 50..10000 ms\n");
+            printf("\nKeys in the TUI: q quit, a/[] page, g regs, j/k scroll,\n");
+            printf("p pause, +/- interval, h help/flags.\n");
             return 0;
         default:
             return 1;
@@ -890,7 +1346,7 @@ int main(int argc, char** argv)
     }
     if (interval_ms < 50) interval_ms = 50;
     if (interval_ms > 10000) interval_ms = 10000;
-    g_color = !no_color;
+    g_color = want_color(no_color);
 
     map_regs();
 
@@ -910,7 +1366,8 @@ int main(int argc, char** argv)
         collect_sys(sys);
         collect_qpu(qpu);
         auto counters = sample_counters(0, interval_ms);
-        render_tui(sys, qpu, counters, 0, false, 0, false);
+        int reg_scroll = 0, view_scroll = 0;
+        render_tui(sys, qpu, counters, 0, false, reg_scroll, false, interval_ms, view_scroll);
         return 0;
     }
 
@@ -931,7 +1388,7 @@ int main(int argc, char** argv)
 
     int page = 0;
     bool regs_view = false, paused = false;
-    int reg_scroll = 0;
+    int reg_scroll = 0, view_scroll = 0;
     std::vector<CounterValue> counters;
 
     while (g_running)
@@ -942,22 +1399,9 @@ int main(int argc, char** argv)
         collect_qpu(qpu);
 
         if (!paused && !regs_view)
-        {
             counters = sample_counters(page, interval_ms);
-        }
-        else if (!paused && regs_view)
-        {
-            // no counter sampling while inspecting registers
-        }
 
-        if (!paused || counters.empty())
-        {
-            render_tui(sys, qpu, counters, page, regs_view, reg_scroll, paused);
-        }
-        else
-        {
-            render_tui(sys, qpu, counters, page, regs_view, reg_scroll, paused);
-        }
+        render_tui(sys, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
 
         int key = read_key();
         if (key == 'q' || key == 3) break;
@@ -987,10 +1431,18 @@ int main(int argc, char** argv)
         {
             help_screen();
         }
-        else if (regs_view && (key == 'j' || key == 'k'))
+        else if (key == 'j' || key == 'k')
         {
-            reg_scroll += (key == 'j') ? 1 : -1;
-            if (reg_scroll < 0) reg_scroll = 0;
+            if (regs_view)
+            {
+                reg_scroll += (key == 'j') ? 1 : -1;
+                if (reg_scroll < 0) reg_scroll = 0;
+            }
+            else
+            {
+                view_scroll += (key == 'j') ? 1 : -1;
+                if (view_scroll < 0) view_scroll = 0;
+            }
         }
         if (key == 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }

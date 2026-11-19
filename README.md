@@ -42,6 +42,15 @@ sudo vc4top --interval 250
 sudo vc4top --no-color
 ```
 
+The layout adapts to the terminal:
+
+- **136+ columns**: three columns (system + utilization, QPU/queues/VPM, counters + legend), so status, queues and counters are visible together at 140x40.
+- **100-135 columns**: two columns (status/QPU on the left, counters/legend on the right).
+- **Under 100 columns**: one compact column. Status comes first, then QPU/queues, then utilization, then counters. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
+- At 80x24 the first screen shows system status, QPU/scheduler state and utilization; scroll down for the full counter table and page legend.
+
+Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is kept in `--once`), `°C` for temperature, `MiB` for memory, `counts`/`cnt/s` for counters and `%` for utilization. Colour is automatic: `NO_COLOR=1`, `--no-color`, or piping the output selects plain text. The footer carries a compact key legend; `h` lists keys, modes and units.
+
 ### Keys
 
 | Key | Action |
@@ -49,7 +58,7 @@ sudo vc4top --no-color
 | `q` | quit |
 | `a` / `[` / `]` | cycle counter pages |
 | `g` | toggle the full V3D register dump |
-| `j` / `k` | scroll the register dump |
+| `j` / `k` | scroll the register dump, or the live view when narrow |
 | `p` | pause/resume sampling |
 | `+` / `-` | increase/decrease the sample interval |
 | `h` | help |

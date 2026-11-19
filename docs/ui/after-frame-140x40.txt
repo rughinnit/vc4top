@@ -1,0 +1,40 @@
+VC4TOP  2026-11-19 09:35:51 WIB  V3D ON  56.9 °C  thr 0x0 (none)  500ms
++- SYSTEM / POWER ------------------------------+ +- QPU / QUEUES / VPM ----------------+ +- COUNTERS -------------------------------------+
+| status   2026-11-19 09:35:51 WIB              | | ident    rev 1                      | | page 1/3  QPU/GPU primary (13-28)  counts      |
+|          temp 56.9 °C  thr 0x0 (none)         | |          3 slices x 4 QPUs = 12     | | ID  NAME                    VALUE   RATE cnt/s |
+| clocks   arm 1200.000 MHz  core 400.000 MHz   | |          6 TMUs  16 semaphores      | | 13  QPU idle cycles    1800342324 3600684648.0 |
+|          v3d 300.000 MHz  h264 0.000 MHz      | |          VPM 12 KiB  HDR 1          | | 14  QPU vertex cycles           0          0.0 |
+|          isp 0.000 MHz  pixel 0.337 MHz       | | regs     IDENT0 0x02443356          | | 15  QPU fragment cyc            0          0.0 |
+|          hdmi 163.683 MHz  vec 108.000 MHz    | |          IDENT1 0xc1102431          | | 16  QPU valid cycles            0          0.0 |
+|          emmc 200.000 MHz                     | |          IDENT2 0x00000121          | | 17  QPU TMU stall               0          0.0 |
+| volts    core 1.3125V  sdram_c 1.2000V        | | queue    SRQCS 0x00010100  queue 0  | | 18  QPU scoreboard st           0          0.0 |
+| memory   gpu 76 MiB  arm 948 MiB              | |          req 1  done 1  qerr 0      | | 19  QPU varying stall           0          0.0 |
+|          CMA 256 MiB / 248 MiB free           | | pointers SRQPC 0xde63d000           | | 20  QPU i-cache hits            0          0.0 |
+| power    v3d active / on  undervolt 0         | |          SRQUA 0x379a7c00           | | 21  QPU i-cache miss            0          0.0 |
+|          hvs underrun 0  0 client(s)          | |          SRQUL 0x00000000           | | 22  QPU u-cache hits            0          0.0 |
+| display  drm vc4 dev=soc:gpu unique=soc:gpu   | | vpm      VPMBASE 0x00000010         | | 23  QPU u-cache miss            0          0.0 |
+|          hdmi disconnected   bo none          | |          reserved 4096 B            | | 24  TMU texture quads           0          0.0 |
++-----------------------------------------------+ |          VPACNTL 0x00000000         | | 25  TMU cache misses            0          0.0 |
++- UTILIZATION ---------------------------------+ | sched    SQRSV0 0x00000000          | | 26  VPM VDW stall               0          0.0 |
+| Idle 100.0%  Vertex 0.0%  Fragment 0.0%       | |          SQRSV1 0x00000000          | | 27  VPM VCD stall               0          0.0 |
+| Valid 0.0%  Stall TMU 0.0%  Stall SB 0.0%     | |          SQCNTL 0x00000000          | | 28  L2C hits                    0          0.0 |
+| Stall Vary 0.0%                               | | irq      INTCTL 0x00000004          | +------------------------------------------------+
+| Idle [##############] 100.0%                  | |          INTENA 0x00000003          | +- LEGEND / HELP --------------------------------+
+| Vertex [..............]   0.0%                | |          INTDIS 0x00000003          | | green ok  yellow warn  red error               |
+| Fragment [..............]   0.0%              | | perf     PCTRE 0x80000000           | | dim idle/zero                                  |
+| Valid [..............]   0.0%                 | |          PCTRC 0x00000000           | | keys  q quit  a/[] page                        |
+| Stall TMU [..............]   0.0%             | |          L2CACTL 0x00000001         | |       g regs  j/k scroll                       |
+| Stall SB [..............]   0.0%              | |          SLCACTL 0x00000000         | |       p pause  +/- int  h help                 |
+| Stall Vary [..............]   0.0%            | | errors   ERRSTAT 0x00001000         | | flags --once  --all-counters                   |
++-----------------------------------------------+ |          VCD-idle                   | |       --regs  --poll [ms]                      |
+                                                  +-------------------------------------+ |       --frame  --no-color                      |
+                                                                                          | plain: NO_COLOR=1 or piped                     |
+                                                                                          | 30 counter sources / 3 pages                   |
+                                                                                          | rate = counts/s over interval                  |
+                                                                                          | QPU counters are 3D-oriented;                  |
+                                                                                          | raw compute may leave idle/                    |
+                                                                                          | valid at zero.                                 |
+                                                                                          | Use --poll for scheduler,                      |
+                                                                                          | --once/--regs for dumps.                       |
+                                                                                          +------------------------------------------------+
+q quit  a/[] page  g regs  j/k scroll  p pause  +/- int  h help/flags

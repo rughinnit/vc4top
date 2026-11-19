@@ -1,0 +1,84 @@
+============================================================
+ VC4TOP - VideoCore IV / V3D wide snapshot
+============================================================
+[ SYSTEM / POWER ]
+time:           2026-11-19 09:35:18 WIB
+temp:           56.4'C
+throttled:      0x0 (none)
+core volts:     1.3125V
+sdram_c volts:  1.2000V
+arm clock:      1200000000 Hz
+core clock:     400000000 Hz
+v3d clock:      300000000 Hz
+h264 clock:     0 Hz
+isp clock:      0 Hz
+pixel clock:    337000 Hz
+hdmi clock:     163683000 Hz
+vec clock:      108000000 Hz
+emmc clock:     200000000 Hz
+gpu mem:        76M
+arm mem:        948M
+cma:            CMA 256M/250M free
+v3d power:      active / on
+undervoltage:   0
+hvs underrun:   0
+drm:            vc4 dev=soc:gpu unique=soc:gpu
+hdmi:           disconnected
+bo_stats:
+
+[ QPU / SCHEDULER ]
+IDENT0:         0x02443356
+IDENT1:         0xc1102431
+IDENT2:         0x00000121
+revision:       1
+slices:         3
+QPUs/slice:     4 (total 12)
+TMUs/slice:     2 (total 6)
+semaphores:     16
+VPM size:       12K
+HDR support:    1
+SRQCS:          0x00010100 queue=0 requests=1 completed=1 qerr=0
+VPMBASE:        0x00000010 reserved=4096 bytes of 12K
+VPACNTL:        0x00000000
+SQRSV0/1:       0x00000000 / 0x00000000
+SQCNTL:         0x00000000
+SRQPC/SRQUA:    0xde63d000 / 0x379a7c00 (len 0x00000000)
+INTCTL/ENA/DIS: 0x00000004 / 0x00000003 / 0x00000003
+PCTRE/PCTRC:    0x80000000 / 0x00000000
+L2CACTL/SLCACTL:0x00000001 / 0x00000000
+ERRSTAT:        0x00001000 VCD-idle
+
+[ COUNTERS page 2/3 ]
+   0 FEP Valid primitives that result in no rendered pixels, for all rendered tiles          0          0.0 /s
+   1 FEP Valid primitives for all rendered tiles. (primitives may be counted in more than one tile)          0          0.0 /s
+   2 FEP Early-Z/Near/Far clipped quads                                              0          0.0 /s
+   3 FEP Valid quads                                                                 0          0.0 /s
+   4 TLB Quads with no pixels passing the stencil test                               0          0.0 /s
+   5 TLB Quads with no pixels passing the Z and stencil tests                        0          0.0 /s
+   6 TLB Quads with any pixels passing the Z and stencil tests                       0          0.0 /s
+   7 TLB Quads with all pixels having zero coverage                                  0          0.0 /s
+   8 TLB Quads with any pixels having non-zero coverage                              0          0.0 /s
+   9 TLB Quads with valid pixels written to color buffer                             0          0.0 /s
+  10 PTB Primitives discarded by being outside the viewport                          0          0.0 /s
+  11 PTB Primitives that need clipping                                               0          0.0 /s
+  12 PSE Primitives that are discarded because they are reversed                     0          0.0 /s
+  13 QPU Total idle clock cycles for all QPUs                               1800351600 3600703200.0 /s
+  14 QPU Total clock cycles for all QPUs doing vertex/coordinate shading             0          0.0 /s
+  15 QPU Total clock cycles for all QPUs doing fragment shading                      0          0.0 /s
+
+[ COUNTERS page 3/3 ]
+  16 QPU Total clock cycles for all QPUs executing valid instructions                0          0.0 /s
+  17 QPU Total clock cycles for all QPUs stalled waiting for TMUs                    0          0.0 /s
+  18 QPU Total clock cycles for all QPUs stalled waiting for Scoreboard              0          0.0 /s
+  19 QPU Total clock cycles for all QPUs stalled waiting for Varyings                0          0.0 /s
+  20 QPU Total instruction cache hits for all slices                                 0          0.0 /s
+  21 QPU Total instruction cache misses for all slices                               0          0.0 /s
+  22 QPU Total uniforms cache hits for all slices                                    0          0.0 /s
+  23 QPU Total uniforms cache misses for all slices                                  0          0.0 /s
+  24 TMU Total texture quads processed                                               0          0.0 /s
+  25 TMU Total texture cache misses (number of fetches from memory/L2cache)          0          0.0 /s
+  26 VPM Total clock cycles VDW is stalled waiting for VPM access                    0          0.0 /s
+  27 VPM Total clock cycles VCD is stalled waiting for VPM access                    0          0.0 /s
+  28 L2C Total Level 2 cache hits                                                    0          0.0 /s
+  29 L2C Total Level 2 cache misses                                                  0          0.0 /s
+

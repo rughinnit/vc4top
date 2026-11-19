@@ -1,0 +1,172 @@
+VC4TOP - VideoCore IV / V3D wide snapshot
+============================================================
+[ SYSTEM / POWER ]
+-- time & thermal --------------------------------------------------------
+time:            2026-11-19 09:35:21 WIB
+temp:            56.4 °C
+throttled:       0x0 (none)
+-- voltages --------------------------------------------------------------
+core volts:      1.3125V
+sdram_c volts:   1.2000V
+-- clocks (Hz / MHz) -----------------------------------------------------
+arm clock:       1200000000 Hz (1200.000 MHz)
+core clock:      400000000 Hz (400.000 MHz)
+v3d clock:       300000000 Hz (300.000 MHz)
+h264 clock:      0 Hz (0.000 MHz)
+isp clock:       0 Hz (0.000 MHz)
+pixel clock:     338000 Hz (0.338 MHz)
+hdmi clock:      163683000 Hz (163.683 MHz)
+vec clock:       108000000 Hz (108.000 MHz)
+emmc clock:      200000000 Hz (200.000 MHz)
+-- memory ----------------------------------------------------------------
+gpu mem:         76 MiB
+arm mem:         948 MiB
+cma:             CMA 256 MiB / 243 MiB free
+-- power & display -------------------------------------------------------
+v3d power:       active / on
+undervoltage:    0 (ok)
+hvs underrun:    0 (events)
+drm:             vc4 dev=soc:gpu unique=soc:gpu
+hdmi:            disconnected
+bo_stats:
+
+[ QPU / SCHEDULER ]
+-- identity & configuration ----------------------------------------------
+IDENT0:          0x02443356
+IDENT1:          0xc1102431
+IDENT2:          0x00000121
+revision:        1
+slices:          3 slices
+QPUs/slice:      4 QPUs/slice (total 12 QPUs)
+TMUs/slice:      2 TMUs/slice (total 6 TMUs)
+semaphores:      16 semaphores
+VPM size:        12 KiB
+HDR support:     1 (yes)
+-- queues & scheduler ----------------------------------------------------
+SRQCS:           0x00040400 queue=0 requests=4 completed=4 qerr=0
+VPMBASE:         0x00000010 reserved=4096 bytes of 12 KiB
+VPACNTL:         0x00000000
+SQRSV0/1:        0x00000000 / 0x00000000
+SQCNTL:          0x00000000
+SRQPC/SRQUA:     0xde625000 / 0x379a6430 (len 0x00000000)
+-- interrupts, counters & caches -----------------------------------------
+INTCTL/ENA/DIS:  0x00000004 / 0x00000003 / 0x00000003
+PCTRE/PCTRC:     0x80000003 / 0x00000000
+L2CACTL/SLCACTL: 0x00000001 / 0x00000000
+-- errors ----------------------------------------------------------------
+ERRSTAT:         0x00001000 VCD-idle
+
+[ PRIMARY COUNTERS ]
+  ID  NAME                                                                    VALUE         RATE
+                                                                              count      count/s
+  --  ------------------------------------------------------------------ ---------- ------------
+  13  QPU Total idle clock cycles for all QPUs                           1800323796 3600647592.0
+  14  QPU Total clock cycles for all QPUs doing vertex/coordinate shading          0          0.0
+  15  QPU Total clock cycles for all QPUs doing fragment shading                  0          0.0
+  16  QPU Total clock cycles for all QPUs executing valid instructions            0          0.0
+  17  QPU Total clock cycles for all QPUs stalled waiting for TMUs                0          0.0
+  18  QPU Total clock cycles for all QPUs stalled waiting for Scoreboard          0          0.0
+  19  QPU Total clock cycles for all QPUs stalled waiting for Varyings            0          0.0
+  20  QPU Total instruction cache hits for all slices                             0          0.0
+  21  QPU Total instruction cache misses for all slices                           0          0.0
+  22  QPU Total uniforms cache hits for all slices                                0          0.0
+  23  QPU Total uniforms cache misses for all slices                              0          0.0
+  24  TMU Total texture quads processed                                           0          0.0
+  25  TMU Total texture cache misses (number of fetches from memory/L2cache)          0          0.0
+  26  VPM Total clock cycles VDW is stalled waiting for VPM access                0          0.0
+  27  VPM Total clock cycles VCD is stalled waiting for VPM access                0          0.0
+  28  L2C Total Level 2 cache hits                                                0          0.0
+
+[ V3D REGISTER DUMP ]
+
+  -- IDENTITY / GLOBAL / INTERRUPTS --
+  V3D_IDENT0   @0x00000  0x02443356  V3D Identification 0 (V3D block identity)
+  V3D_IDENT1   @0x00004  0xc1102431  V3D Identification 1 (V3D Configuration A)
+  V3D_IDENT2   @0x00008  0x00000121  V3D Identification 1 (V3D Configuration B)
+  V3D_SCRATCH  @0x00010  0x00000000  Scratch Register
+  V3D_L2CACTL  @0x00020  0x00000001  L2 Cache Control
+  V3D_SLCACTL  @0x00024  0x00000000  Slices Cache Control
+  V3D_INTCTL   @0x00030  0x00000004  Interrupt Control
+  V3D_INTENA   @0x00034  0x00000003  Interrupt Enables
+  V3D_INTDIS   @0x00038  0x00000003  Interrupt Disables
+
+  -- CONTROL LIST EXECUTOR / PIPELINE --
+  V3D_CT0CS    @0x00100  0x00000000  Control List Executor Thread 0 Control and Status.
+  V3D_CT1CS    @0x00104  0x00000000  Control List Executor Thread 1 Control and Status.
+  V3D_CT0EA    @0x00108  0x00000000  Control List Executor Thread 0 End Address.
+  V3D_CT1EA    @0x0010c  0x00000000  Control List Executor Thread 1 End Address.
+  V3D_CT0CA    @0x00110  0x00000000  Control List Executor Thread 0 Current Address.
+  V3D_CT1CA    @0x00114  0x00000000  Control List Executor Thread 1 Current Address.
+  V3D_CT00RA0  @0x00118  0x00000000  Control List Executor Thread 0 Return Address.
+  V3D_CT01RA0  @0x0011c  0x00000000  Control List Executor Thread 1 Return Address.
+  V3D_CT0LC    @0x00120  0x00000000  Control List Executor Thread 0 List Counter
+  V3D_CT1LC    @0x00124  0x00000000  Control List Executor Thread 1 List Counter
+  V3D_CT0PC    @0x00128  0x00000000  Control List Executor Thread 0 Primitive List Counter
+  V3D_CT1PC    @0x0012c  0x00000000  Control List Executor Thread 1 Primitive List Counter
+  V3D_PCS      @0x00130  0x00000100  V3D Pipeline Control and Status
+  V3D_BFC      @0x00134  0x00000000  Binning Mode Flush Count
+  V3D_RFC      @0x00138  0x00000000  Rendering Mode Frame Count
+
+  -- BINNER MEMORY --
+  V3D_BPCA     @0x00300  0x00000000  Current Address of Binning Memory Pool
+  V3D_BPCS     @0x00304  0x00000000  Remaining Size of Binning Memory Pool
+  V3D_BPOA     @0x00308  0x00000000  Address of Overspill Binning Memory Block
+  V3D_BPOS     @0x0030c  0x00000000  Size of Overspill Binning Memory Block
+  V3D_BXCF     @0x00310  0x00000000  Binner Debug
+
+  -- QPU SCHEDULER / QUEUES --
+  V3D_SQRSV0   @0x00410  0x00000000  Reserve QPUs 0-7
+  V3D_SQRSV1   @0x00414  0x00000000  Reserve QPUs 8-15
+  V3D_SQCNTL   @0x00418  0x00000000  QPU Scheduler Control
+  V3D_SRQPC    @0x00430  0xde625000  QPU User Program Request Program Address
+  V3D_SRQUA    @0x00434  0x379a6430  QPU User Program Request Uniforms Address
+  V3D_SRQUL    @0x00438  0x00000000  QPU User Program Request Uniforms Length
+  V3D_SRQCS    @0x0043c  0x00040400  QPU User Program Request Control and Status
+
+  -- VPM --
+  V3D_VPACNTL  @0x00500  0x00000000  VPM Allocator Control
+  V3D_VPMBASE  @0x00504  0x00000010  VPM base (user) memory reservation
+
+  -- PERFORMANCE COUNTERS --
+  V3D_PCTRC    @0x00670  0x00000000  Performance Counter Clear
+  V3D_PCTRE    @0x00674  0x80000000  Performance Counter Enables
+  V3D_PCTR0    @0x00680  0x00000000  Performance Counter Count 0
+  V3D_PCTRS0   @0x00684  0x0000000d  Performance Counter Mapping 0
+  V3D_PCTR1    @0x00688  0x00000000  Performance Counter Count 1
+  V3D_PCTRS1   @0x0068c  0x0000000e  Performance Counter Mapping 1
+  V3D_PCTR2    @0x00690  0x00000000  Performance Counter Count 2
+  V3D_PCTRS2   @0x00694  0x0000000f  Performance Counter Mapping 2
+  V3D_PCTR3    @0x00698  0x00000000  Performance Counter Count 3
+  V3D_PCTRS3   @0x0069c  0x00000010  Performance Counter Mapping 3
+  V3D_PCTR4    @0x006a0  0x00000000  Performance Counter Count 4
+  V3D_PCTRS4   @0x006a4  0x00000011  Performance Counter Mapping 4
+  V3D_PCTR5    @0x006a8  0x00000000  Performance Counter Count 5
+  V3D_PCTRS5   @0x006ac  0x00000012  Performance Counter Mapping 5
+  V3D_PCTR6    @0x006b0  0x00000000  Performance Counter Count 6
+  V3D_PCTRS6   @0x006b4  0x00000013  Performance Counter Mapping 6
+  V3D_PCTR7    @0x006b8  0x00000000  Performance Counter Count 7
+  V3D_PCTRS7   @0x006bc  0x00000014  Performance Counter Mapping 7
+  V3D_PCTR8    @0x006c0  0x00000000  Performance Counter Count 8
+  V3D_PCTRS8   @0x006c4  0x00000015  Performance Counter Mapping 8
+  V3D_PCTR9    @0x006c8  0x00000000  Performance Counter Count 9
+  V3D_PCTRS9   @0x006cc  0x00000016  Performance Counter Mapping 9
+  V3D_PCTR10   @0x006d0  0x00000000  Performance Counter Count 10
+  V3D_PCTRS10  @0x006d4  0x00000017  Performance Counter Mapping 10
+  V3D_PCTR11   @0x006d8  0x00000000  Performance Counter Count 11
+  V3D_PCTRS11  @0x006dc  0x00000018  Performance Counter Mapping 11
+  V3D_PCTR12   @0x006e0  0x00000000  Performance Counter Count 12
+  V3D_PCTRS12  @0x006e4  0x00000019  Performance Counter Mapping 12
+  V3D_PCTR13   @0x006e8  0x00000000  Performance Counter Count 13
+  V3D_PCTRS13  @0x006ec  0x0000001a  Performance Counter Mapping 13
+  V3D_PCTR14   @0x006f0  0x00000000  Performance Counter Count 14
+  V3D_PCTRS14  @0x006f4  0x0000001b  Performance Counter Mapping 14
+  V3D_PCTR15   @0x006f8  0x00000000  Performance Counter Count 15
+  V3D_PCTRS15  @0x006fc  0x0000001c  Performance Counter Mapping 15
+
+  -- DEBUG / ERRORS --
+  V3D_DBGE     @0x00f00  0x00000000  PSE Error Signals
+  V3D_FDBGO    @0x00f04  0x00000000  FEP Overrun Error Signals
+  V3D_FDBGB    @0x00f08  0x00000000  FEP Interface Ready and Stall Signals, FEP Busy Signals
+  V3D_FDBGR    @0x00f0c  0x00000000  FEP Internal Ready Signals
+  V3D_FDBGS    @0x00f10  0x00000407  FEP Internal Stall Input Signals
+  V3D_ERRSTAT  @0x00f20  0x00001000  Miscellaneous Error Signals (VPM, VDW, VCD, VCM, L2C)

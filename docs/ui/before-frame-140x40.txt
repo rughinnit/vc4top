@@ -1,0 +1,40 @@
+VC4TOP  2026-11-19 09:35:49 WIB  58.0'C  thr 0x0 (none)  V3D ON
++- SYSTEM / POWER ---------------------------------------------------+ +- COUNTERS --------------------------------------------------------+
+| time     2026-11-19 09:35:49 WIB                                   | | page 1/3   QPU/GPU primary (13-28)                                |
+| temp     58.0'C   throttle 0x0 (none)                              | | ID  NAME                               VALUE       RATE/s         |
+| clocks   arm 1200000000  core 400000000  v3d 300000000             | | 13  QPU Total idle clock cycles   1800335736 3600671472.0         |
+| codecs   h264 0  isp 0  pixel 338000                               | | 14  QPU Total clock cycles for             0          0.0         |
+| display  hdmi 163683000  vec 108000000  emmc 200000000             | | 15  QPU Total clock cycles for             0          0.0         |
+| volts    core 1.3125V  sdram_c 1.2000V                             | | 16  QPU Total clock cycles for             0          0.0         |
+| memory   gpu 76M  arm 948M  CMA 256M/248M free                     | | 17  QPU Total clock cycles for             0          0.0         |
+| v3d      active / on  undervolt 0                                  | | 18  QPU Total clock cycles for             0          0.0         |
+| drm      vc4 dev=soc:gpu unique=soc:gpu                            | | 19  QPU Total clock cycles for             0          0.0         |
+| hdmi     disconnected                                              | | 20  QPU Total instruction cache            0          0.0         |
+| hvs      underrun 0  bo none                                       | | 21  QPU Total instruction cache            0          0.0         |
+| clients  0 client(s)                                               | | 22  QPU Total uniforms cache hi            0          0.0         |
++--------------------------------------------------------------------+ | 23  QPU Total uniforms cache mi            0          0.0         |
++- QPU / SCHEDULER / VPM --------------------------------------------+ | 24  TMU Total texture quads pro            0          0.0         |
+| ident    3 sl x 4 qpu = 12 qpu / 6 tmu / 16 sem                    | | 25  TMU Total texture cache mis            0          0.0         |
+| config   vpm 12K  hdr 1  rev 1                                     | | 26  VPM Total clock cycles VDW             0          0.0         |
+| ident0   0x02443356  ident1 0xc1102431                             | | 27  VPM Total clock cycles VCD             0          0.0         |
+| srqcs    0x00010100  queue 0  req 1  done 1  qerr 0                | | 28  L2C Total Level 2 cache hit            0          0.0         |
+| vpmbase  0x00000010  reserved 4096 B of 12K  vpacntl 0x00000000    | +-------------------------------------------------------------------+
+| sqrsv    0x00000000 / 0x00000000                                   | +- NOTES -----------------------------------------------------------+
+| srqpc    0xde63d000  srqua 0x379a7c00                              | | counter pages                                                     |
+| srqul    0x00000000                                                | |   a / [ / ]  page 1: 13-28 primary                                |
+| intctl   0x00000004  intena 0x00000003                             | |               page 2: 0-15 FEP/TLB/PTB/PSE                        |
+| intdis   0x00000003  pctre 0x80000000                              | |               page 3: 16-29 QPU/TMU/VPM/L2C                       |
+| pctrc    0x00000000  l2c 0x00000001                                | |                                                                   |
+| slc      0x00000000                                                | | V3D counters are 3D-pipeline oriented.                            |
+| errstat  0x00001000  VCD-idle                                      | | Raw QPU compute may leave idle/valid at 0.                        |
++--------------------------------------------------------------------+ | Use --poll for SRQCS/SRQPC activity and                           |
++- UTILIZATION ------------------------------------------------------+ | --once / --regs for the full wide dump.                           |
+| Idle [##############################] 100.0%                       | +-------------------------------------------------------------------+
+| Vertex [..............................]   0.0%                     |
+| Fragment [..............................]   0.0%                   |
+| Valid [..............................]   0.0%                      |
+| Stall TMU [..............................]   0.0%                  |
+| Stall SB [..............................]   0.0%                   |
+| Stall Vary [..............................]   0.0%                 |
++--------------------------------------------------------------------+
+q quit  a/[ ] counters  g registers  p pause  +/- interval  h help

@@ -1,0 +1,24 @@
+VC4TOP  2026-11-19 09:35:31 WIB  58.5'C  thr 0x0 (none)  V3D ON
++- SYSTEM ---------------------------------------------------------------------+
+| time     2026-11-19 09:35:31 WIB                                             |
+| temp     58.5'C   throttle 0x0 (none)                                        |
+| clocks   arm 1200000000  core 400000000  v3d 300000000                       |
+| codecs   h264 0  isp 0  pixel 338000                                         |
+| display  hdmi 163683000  vec 108000000  emmc 200000000                       |
+| volts    core 1.3125V  sdram_c 1.2000V                                       |
+| memory   gpu 76M  arm 948M  CMA 256M/244M free                               |
+| v3d      active / on  undervolt 0                                            |
+| drm      vc4 dev=soc:gpu unique=soc:gpu                                      |
+| hdmi     disconnected                                                        |
+| hvs      underrun 0  bo none                                                 |
+| clients  0 client(s)                                                         |
++------------------------------------------------------------------------------+
++- QPU ------------------------------------------------------------------------+
+| ident    3 sl x 4 qpu = 12 qpu / 6 tmu / 16 sem                              |
+| config   vpm 12K  hdr 1  rev 1                                               |
+| ident0   0x02443356  ident1 0xc1102431                                       |
+| srqcs    0x00010100  queue 0  req 1  done 1  qerr 0                          |
+| vpmbase  0x00000010  reserved 4096 B of 12K  vpacntl 0x00000000              |
+| sqrsv    0x00000000 / 0x00000000                                             |
+| srqpc    0xde639000  srqua 0x379a7800                                        |
+q quit  a/[ ] counters  g registers  p pause  +/- interval  h help
