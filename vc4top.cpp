@@ -1117,7 +1117,8 @@ std::string make_util_line(const std::string& label, double pct, int barw)
     return colorize(K_CYAN, pad_visible(label, 11)) + " " + colorize(c, bar) + pbuf;
 }
 
-std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width)
+std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width,
+    int max_bar = 30)
 {
     if (!counters_available())
         return {colorize(K_DIM, "n/a (vc4mon counter attributes unavailable)")};
@@ -1126,7 +1127,7 @@ std::vector<std::string> utilization_lines(const std::vector<CounterValue>& coun
     double total = 0;
     utilization_values(counters, c, total);
     std::vector<std::string> b;
-    const int barw = std::max(8, std::min(30, width - 23));
+    const int barw = std::max(8, std::min(max_bar, width - 23));
     for (int i = 0; i < 7; ++i)
         b.push_back(clip_vis(make_util_line(labels[i], c[i] / total * 100.0, barw),
             static_cast<size_t>(width)));
@@ -1150,7 +1151,7 @@ std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters
     {
         b.push_back(colorize(K_DIM, "counters unavailable"));
         b.push_back(colorize(K_DIM, g_counter_error.empty()
-            ? "install vc4top-dkms >= 1.0.4" : g_counter_error));
+            ? "install vc4top-dkms >= 1.0.5" : g_counter_error));
         return b;
     }
     if (with_title)
@@ -1233,6 +1234,193 @@ std::vector<std::string> box(const std::string& title, const std::vector<std::st
         out.push_back(line);
     }
     out.push_back(colorize(K_CYAN, "+" + std::string(width - 2, '-') + "+"));
+    return out;
+}
+
+// True when the line starts a new labelled group: skip any leading ANSI escape
+// sequence, then require a non-space visible character. Continuation lines are
+// indented, so this distinguishes them from labels without parsing colour.
+static bool starts_group(const std::string& line)
+{
+    size_t i = 0;
+    while (i < line.size() && line[i] == '\033')
+    {
+        ++i;
+        if (i < line.size() && line[i] == '[')
+        {
+            ++i;
+            while (i < line.size() && (line[i] < '@' || line[i] > '~')) ++i;
+            if (i < line.size()) ++i;   // final selector byte
+        }
+    }
+    return i < line.size() && line[i] != ' ' && line[i] != '\t';
+}
+
+// Grow a panel body to exactly `target` rows by inserting blank rows between
+// labelled groups. The extra rows are spread over the groups instead of being
+// dumped against the bottom border, so tall panels keep an even rhythm.
+static std::vector<std::string> spread_lines(const std::vector<std::string>& body, int target)
+{
+    const int n = static_cast<int>(body.size());
+    if (target <= n) return body;
+    int extra = target - n;
+    std::vector<int> starts;
+    for (int i = 0; i < n; ++i)
+        if (starts_group(body[i])) starts.push_back(i);
+    std::vector<std::string> out;
+    out.reserve(static_cast<size_t>(target));
+    if (starts.empty())
+    {
+        out = body;
+    }
+    else
+    {
+        // Never insert blank rows above the first group: the panel's own top
+        // border already provides that separation.
+        const int slots = static_cast<int>(starts.size()) - 1;
+        const int base = slots > 0 ? extra / slots : 0;
+        const int rem = slots > 0 ? extra % slots : 0;
+        int k = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            if (k > 0 && k <= slots && starts[k] == i)
+            {
+                const int pad = base + (k <= rem ? 1 : 0);
+                for (int j = 0; j < pad; ++j) out.push_back("");
+            }
+            out.push_back(body[i]);
+            if (k <= slots && starts[k] == i) ++k;
+        }
+    }
+    while (static_cast<int>(out.size()) < target) out.push_back("");
+    return out;
+}
+
+// box() with a requested height: the body is spread, then padded with blank
+// content rows just above the bottom border, so every panel in a row ends on
+// the same screen line. A natural body taller than the request is kept intact
+// (the caller decides whether that means scrolling).
+static std::vector<std::string> box_sized(const std::string& title,
+    const std::vector<std::string>& body, int width, int height)
+{
+    const int inner = std::max(0, height - 2);
+    std::vector<std::string> spread = spread_lines(body, inner);
+    std::vector<std::string> out = box(title, spread, width);
+    while (static_cast<int>(out.size()) < height)
+        out.insert(out.end() - 1, std::string(static_cast<size_t>(width), ' '));
+    return out;
+}
+
+// Compose already equal-height boxes side by side with a single-column gutter.
+static void compose_row(const std::vector<std::vector<std::string>>& cells,
+    const std::vector<int>& widths, int gap, std::vector<std::string>& out)
+{
+    size_t n = 0;
+    for (const auto& c : cells) n = std::max(n, c.size());
+    for (size_t i = 0; i < n; ++i)
+    {
+        std::string line;
+        for (size_t k = 0; k < cells.size(); ++k)
+        {
+            const std::string part = i < cells[k].size() ? cells[k][i] : "";
+            // Pad every cell but the last: the last one must end exactly at the
+            // terminal width or the single-line clip marker appears on-screen.
+            line += pad_visible(part, static_cast<size_t>(widths[k] +
+                (k + 1 < cells.size() ? gap : 0)));
+        }
+        out.push_back(line);
+    }
+}
+
+// One counter row in the same layout as counter_lines(); split out so the wide
+// view can place two tables side by side without duplicating the format.
+static std::string counter_row_text(const CounterValue& v, int name_w)
+{
+    char buf[256];
+    const std::string name = truncate_plain(counter_short(v.source), static_cast<size_t>(name_w));
+    if (v.powered_off)
+        snprintf(buf, sizeof(buf), "%-3d %-*s %10s %12s", v.source, name_w, name.c_str(), "POWERED", "-");
+    else
+        snprintf(buf, sizeof(buf), "%-3d %-*s %10u %12.1f", v.source, name_w, name.c_str(), v.value, v.rate);
+    return colorize(v.value == 0 || v.powered_off ? K_DIM : K_RESET, buf);
+}
+
+static std::string counter_header_text(int name_w)
+{
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%-3s %-*s %10s %12s", "ID", name_w, "NAME", "VALUE", "RATE cnt/s");
+    return colorize(K_DIM, buf);
+}
+
+// Wide counter table: two rank-ordered halves side by side, each with its own
+// header and right-aligned numeric columns. This uses the extra width instead
+// of leaving a 100-column gutter inside one narrow table, and halves the rows
+// the table needs. The source order is preserved left half then right half.
+static std::vector<std::string> wide_counter_body(const std::vector<CounterValue>& counters,
+    int width)
+{
+    if (counters.size() < 4)
+        return counter_lines(counters, 0, width, false);
+    const int inner = std::max(40, width - 4);
+    const int gutter = 3;
+    const int half = (inner - gutter) / 2;
+    // Fill the half: right-align the numeric columns at its right edge instead
+    // of leaving an unused band after RATE on very wide terminals.
+    const int name_w = std::max(8, half - 28);
+    const int left_n = (static_cast<int>(counters.size()) + 1) / 2;
+    std::vector<std::string> left;
+    std::vector<std::string> right;
+    left.push_back(counter_header_text(name_w));
+    right.push_back(counter_header_text(name_w));
+    for (int i = 0; i < static_cast<int>(counters.size()); ++i)
+    {
+        std::string row = counter_row_text(counters[i], name_w);
+        if (i < left_n) left.push_back(row);
+        else right.push_back(row);
+    }
+    std::vector<std::string> out;
+    const size_t n = std::max(left.size(), right.size());
+    for (size_t i = 0; i < n; ++i)
+    {
+        const std::string l = i < left.size() ? left[i] : "";
+        const std::string r = i < right.size() ? right[i] : "";
+        out.push_back(pad_visible(l, static_cast<size_t>(half + gutter)) + r);
+    }
+    return out;
+}
+
+// Wide layout notes: the old 12-row FLAGS / NOTES panel, reflowed into as few
+// full-width rows as the terminal needs. It keeps every hint but stops
+// reserving a tall column for documentation on a short desktop screen.
+static std::vector<std::string> wide_note_lines(int cols)
+{
+    static const char* chunks[] = {
+        "flags --once --all-counters --regs --poll [ms] --frame --no-color",
+        "plain: NO_COLOR=1 or piped",
+        "30 counter sources / 3 pages (a/[] cycles)",
+        "rate: counts/s over interval",
+        "memory: ARM from /proc, GPU/CMA pool",
+        "util: label + bar + %, printed once",
+        "QPU counters are 3D-oriented; raw compute may leave idle/valid at zero",
+        "h: full help/flags"};
+    std::vector<std::string> out;
+    std::string line;
+    for (const char* chunk : chunks)
+    {
+        const std::string piece = chunk;
+        const std::string sep = line.empty() ? "" : "   |   ";
+        if (!line.empty() &&
+            static_cast<int>(visible_len(line + sep + piece)) > cols)
+        {
+            out.push_back(colorize(K_DIM, line));
+            line = piece;
+        }
+        else
+        {
+            line += sep + piece;
+        }
+    }
+    if (!line.empty()) out.push_back(colorize(K_DIM, line));
     return out;
 }
 
@@ -1330,10 +1518,86 @@ void compose_three(const std::vector<std::string>& a, const std::vector<std::str
     }
 }
 
-std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
-    const std::vector<CounterValue>& counters, int page, int cols)
+// Desktop / horizontal layout (>= 160 columns). Three content-sized panels
+// across the top and a full-width counter table below, with the flag notes
+// reflowed into a full-width strip. Both grid rows are stretched to use every
+// remaining screen row, so a short 45-row desktop terminal does not waste the
+// width on fixed percentage columns or leave a blank band under the panels.
+std::vector<std::string> wide_desktop_content(const SysData& sys, const QpuData& qpu,
+    const std::vector<CounterValue>& counters, int page, int cols, int avail)
 {
     std::vector<std::string> out;
+    if (avail <= 0) return out;
+
+    const int gap = 1;
+    int sys_w = std::max(50, std::min(84, cols * 31 / 100));
+    int qpu_w = std::max(50, std::min(84, cols * 28 / 100));
+    int util_w = cols - sys_w - qpu_w - 2 * gap;
+    // Keep the utilization panel readable on the narrowest wide screen; take
+    // the space from the two text panels proportionally if it is not.
+    while (util_w < 42 && (sys_w > 50 || qpu_w > 50))
+    {
+        if (sys_w >= qpu_w && sys_w > 50) --sys_w;
+        else if (qpu_w > 50) --qpu_w;
+        else --sys_w;
+        util_w = cols - sys_w - qpu_w - 2 * gap;
+    }
+
+    const std::vector<std::string> sys_body = system_lines(sys, sys_w - 4);
+    const std::vector<std::string> qpu_body = qpu_lines(qpu, qpu_w - 4);
+    // Wide panels have room for bars that actually use the available width.
+    const std::vector<std::string> util_body =
+        utilization_lines(counters, util_w - 4, std::max(30, util_w - 27));
+    std::vector<std::string> ctr_body = wide_counter_body(counters, cols);
+    if (page != 0 && g_reg_source != REGS_SYSFS)
+        ctr_body.push_back(colorize(K_DIM,
+            "page changed; zero counts are expected for the first sample"));
+
+    const int top_nat = std::max({static_cast<int>(sys_body.size()),
+        static_cast<int>(qpu_body.size()), static_cast<int>(util_body.size())}) + 2;
+    const int ctr_nat = static_cast<int>(ctr_body.size()) + 2;
+    const std::vector<std::string> notes = wide_note_lines(cols);
+    const int notes_h = static_cast<int>(notes.size());
+    // One blank separator row between the top row and the counters, and one
+    // between the counters and the notes strip.
+    const int fixed = ctr_nat + notes_h + 2;
+
+    int top_h = top_nat;
+    int ctr_h = ctr_nat;
+    const int spare = avail - (top_nat + fixed);
+    if (spare > 0)
+    {
+        // Give the counter table some of the extra height (it spreads between
+        // its rows) but keep the top row, the visual focus, the larger share.
+        const int to_ctr = spare * 2 / 5;
+        ctr_h += to_ctr;
+        top_h += spare - to_ctr;
+    }
+
+    std::vector<std::vector<std::string>> top;
+    top.push_back(box_sized("SYSTEM / POWER / MEMORY", sys_body, sys_w, top_h));
+    top.push_back(box_sized("QPU / QUEUES / VPM", qpu_body, qpu_w, top_h));
+    top.push_back(box_sized("UTILIZATION", util_body, util_w, top_h));
+    compose_row(top, {sys_w, qpu_w, util_w}, gap, out);
+
+    out.push_back(std::string(static_cast<size_t>(cols), ' '));
+
+    std::string ctr_title = "COUNTERS  " + page_title(page);
+    append(out, box_sized(ctr_title, ctr_body, cols, ctr_h));
+
+    out.push_back(std::string(static_cast<size_t>(cols), ' '));
+    for (const auto& line : notes)
+        out.push_back(pad_visible(clip_vis(line, static_cast<size_t>(cols)),
+            static_cast<size_t>(cols)));
+    return out;
+}
+
+std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
+    const std::vector<CounterValue>& counters, int page, int cols, int avail)
+{
+    std::vector<std::string> out;
+    if (cols >= 160)
+        return wide_desktop_content(sys, qpu, counters, page, cols, avail);
     if (cols >= 136)
     {
         const int w1 = cols * 35 / 100;
@@ -1490,7 +1754,7 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
     else
     {
         content = (layout_cols >= 100)
-            ? wide_content(sys, qpu, counters, page, layout_cols)
+            ? wide_content(sys, qpu, counters, page, layout_cols, avail)
             : narrow_content(sys, qpu, counters, page, layout_cols, rows);
         total = static_cast<int>(content.size());
         const int max_scroll = std::max(0, total - avail);
@@ -1696,7 +1960,7 @@ void print_snapshot(bool all_counters, bool regs)
         printf("[ COUNTERS ]\n");
         printf("  unavailable: vc4mon perf_enable/perf_clear are not writable.\n");
         if (!g_counter_error.empty()) printf("  %s\n", g_counter_error.c_str());
-        printf("  Install vc4top-dkms >= 1.0.4 and load vc4mon.\n\n");
+        printf("  Install vc4top-dkms >= 1.0.5 and load vc4mon.\n\n");
     }
     else if (all_counters && g_reg_source == REGS_SYSFS)
     {

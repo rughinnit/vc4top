@@ -19,6 +19,6 @@ Description: V3D register and counter module for vc4top (DKMS)
  0444; perf_enable (PCTRE) and perf_clear (PCTRC) are the only writable
  files.  A udev helper grants group vc4 write-only access to those two.
  .
- Source is installed in /usr/src/vc4top-1.0.4 and built for the running
+ Source is installed in /usr/src/vc4top-1.0.5 and built for the running
  kernel with DKMS.  Kernel upgrades rebuild it automatically at boot once
  the matching kernel headers are present.

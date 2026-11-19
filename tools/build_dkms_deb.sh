@@ -1,7 +1,7 @@
 #!/bin/sh
 # Assemble and build the vc4top-dkms_<version>_all.deb package.
 #
-#   tools/build_dkms_deb.sh 1.0.4
+#   tools/build_dkms_deb.sh 1.0.5
 #
 # The package ships the module source under /usr/src/vc4top-<version>/ so DKMS
 # can rebuild it for every kernel.  No kernel build happens here: the compiler

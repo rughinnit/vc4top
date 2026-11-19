@@ -1,0 +1,40 @@
+VC4TOP  2026-11-19 19:39:17 WIB  V3D ON  44.5 °C  thr 0x0 (none)  500ms                                                                     
++- SYSTEM / POWER / MEMORY ---------------------+ +- QPU / QUEUES / VPM ----------------+ +- COUNTERS -------------------------------------+
+| status   2026-11-19 19:39:17 WIB              | | ident    rev 1                      | | hardware counter map (fixed; 16 counters)      |
+|          temp 44.5 °C  thr 0x0 (none)         | |          3 slices x 4 QPUs = 12     | | ID  NAME                    VALUE   RATE cnt/s |
+| clocks   arm 1200.000 MHz  core 400.000 MHz   | |          6 TMUs  16 semaphores      | | 16  QPU valid cycles            0          0.0 |
+|          v3d 300.000 MHz  h264 0.000 MHz      | |          VPM 12 KiB  HDR 1          | | 20  QPU i-cache hits            0          0.0 |
+|          isp 0.000 MHz  pixel 0.337 MHz       | | regs     IDENT0 0x02443356          | | 17  QPU TMU stall               0          0.0 |
+|          hdmi 163.682 MHz  vec 108.000 MHz    | |          IDENT1 0xc1102431          | | 13  QPU idle cycles    1800794376 3601588752.0 |
+|          emmc 200.000 MHz                     | |          IDENT2 0x00000121          | | 21  QPU i-cache miss            0          0.0 |
+| volts    core 1.3188V  sdram_c 1.2000V        | | queue    SRQCS 0x00030300  queue 0  | | 0   FEP no-pixels               0          0.0 |
+| memory   gpu 76 MiB  arm 948 MiB              | |          req 3  done 3  qerr 0      | | 0   FEP no-pixels               0          0.0 |
+|          CMA 256 MiB / 52 MiB free            | | pointers SRQPC 0xde625000           | | 0   FEP no-pixels               0          0.0 |
+|          ARM     [##....]  27.5%  249/905 MiB | |          SRQUA 0x37a26420           | | 0   FEP no-pixels               0          0.0 |
+|          GPU/CMA [#####.]  79.7%  204/256 MiB | |          SRQUL 0x00000000           | | 0   FEP no-pixels               0          0.0 |
+| power    v3d active / on  undervolt 0         | | vpm      VPMBASE 0x00000010         | | 0   FEP no-pixels               0          0.0 |
+|          hvs underrun 0  0 client(s)          | |          reserved 4096 B            | | 0   FEP no-pixels               0          0.0 |
+| display  drm vc4 dev=soc:gpu unique=soc:gpu   | |          VPACNTL 0x00000000         | | 0   FEP no-pixels               0          0.0 |
+|          hdmi disconnected   bo none          | | sched    SQRSV0 0x00000000          | | 0   FEP no-pixels               0          0.0 |
++-----------------------------------------------+ |          SQRSV1 0x00000000          | | 0   FEP no-pixels               0          0.0 |
++- UTILIZATION ---------------------------------+ |          SQCNTL 0x00000000          | | 0   FEP no-pixels               0          0.0 |
+| Idle        [######################] 100.0%   | | irq      INTCTL 0x00000004          | +------------------------------------------------+
+| Vertex      [......................]   0.0%   | |          INTENA 0x00000003          | +- FLAGS / NOTES --------------------------------+
+| Fragment    [......................]   0.0%   | |          INTDIS 0x00000003          | | flags --once  --all-counters                   |
+| Valid       [......................]   0.0%   | | perf     PCTRE 0x00000000           | |       --regs  --poll [ms]                      |
+| Stall TMU   [......................]   0.0%   | |          PCTRC 0x00000000           | |       --frame  --no-color                      |
+| Stall SB    [......................]   0.0%   | |          L2CACTL 0x00000001         | | plain: NO_COLOR=1 or piped                     |
+| Stall Vary  [......................]   0.0%   | |          SLCACTL 0x00000000         | | 30 counter sources / 3 pages                   |
++-----------------------------------------------+ | errors   ERRSTAT 0x00001000         | | rate = counts/s over interval                  |
+                                                  |          VCD-idle                   | | memory: ARM /proc, GPU/CMA pool                |
+                                                  +-------------------------------------+ | util: label + bar + %, printed once            |
+                                                                                          | QPU counters are 3D-oriented;                  |
+                                                                                          | raw compute may leave idle/                    |
+                                                                                          | valid at zero.                                 |
+                                                                                          | h = full help screen                           |
+                                                                                          +------------------------------------------------+
+q quit  a/[] page  g regs  j/k scroll  p pause  +/- int  h help/flags                                                                       
+units  MHz  °C  MiB  %  cnt/s    ok warn err idle    h full help/flags                                                                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            

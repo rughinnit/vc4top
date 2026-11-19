@@ -53,11 +53,11 @@ two `0200` write-only counter files:
 
 ```bash
 sudo apt install vc4top vc4top-dkms          # from the vc4top apt repository
-dkms status                                  # vc4top/1.0.4, <kernel>: installed
+dkms status                                  # vc4top/1.0.5, <kernel>: installed
 ls -l /sys/kernel/vc4mon/                    # ident perf regs 0444; perf_enable/perf_clear
 ```
 
-`vc4top-dkms` installs the source in `/usr/src/vc4top-1.0.4` and builds it for
+`vc4top-dkms` installs the source in `/usr/src/vc4top-1.0.5` and builds it for
 the running kernel in `postinst`; `/etc/modules-load.d/vc4mon.conf` loads it at
 boot. Kernel upgrades rebuild it automatically (`AUTOINSTALL="yes"`) as long as
 the matching `linux-headers-*` package is installed. If the headers are
@@ -103,9 +103,9 @@ A prebuilt package, the `vc4top-dkms` module package and a signed apt
 repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
-sudo apt install ./vc4top_1.0.4_arm64.deb ./vc4top-dkms_1.0.4_all.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
+sudo apt install ./vc4top_1.0.5_arm64.deb ./vc4top-dkms_1.0.5_all.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -127,7 +127,8 @@ vc4top --once            # unprivileged, if vc4mon is loaded
 
 The layout adapts to the terminal:
 
-- **136+ columns**: three columns (system/power/memory + utilization, QPU/queues/VPM, counters + flags/notes), so status, memory, queues and counters are visible together at 140x40.
+- **160+ columns (wide / horizontal desktop)**: three content-sized panels across the top — system/power/memory, QPU/queues/VPM and utilization — over a **full-width counter table** split into two side-by-side halves, then a full-width flags/units strip. All sampled counter sources stay visible at once, the utilization bars widen to fill their panel, and the top row and counter table share the spare height, so a short desktop terminal (160x45, 200x50) fills its rows instead of leaving a blank band under fixed-percentage columns. Captures: [`docs/ui/wide/`](docs/ui/wide/).
+- **136-159 columns**: three columns (system/power/memory + utilization, QPU/queues/VPM, counters + flags/notes), so status, memory, queues and counters are visible together at 140x40.
 - **100-135 columns**: two columns (system/QPU/utilization on the left, counters/flags on the right).
 - **Under 100 columns**: one compact column: system status + memory bars, all seven utilization bars, the counter table, then QPU/queues/VPM. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
 - At 80x24 the first screen shows system status with both memory bars, every utilization metric, and the counter table header with its first row; the QPU/queue/VPM section and the rest of the table are one scroll down. The always-on two-row legend never overlaps it.
@@ -180,6 +181,26 @@ table shows the module's fixed 16-counter map.
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 
 ## Changelog
+
+### 1.0.5 (2026-11-19)
+
+- New wide/horizontal desktop layout at **160+ columns**: system/power/memory,
+  QPU/queues/VPM and utilization are content-sized panels on the top row, with
+  a full-width counter table (two side-by-side halves, all sampled sources
+  visible) and a full-width flags strip below. Spare rows are shared by the top
+  row and the counter table instead of being left blank, so 160x45, 192x48,
+  200x50, 240x60 and 256x70 fill the screen with balanced panels.
+- Nothing was removed: all system/QPU/utilization lines, every counter source
+  and all flag/definition notes remain in the wide view. The 136-159 column
+  three-column layout, the 100-135 two-column layout and the narrow scrolling
+  layout are unchanged, and 80x24/120x40/140x40 renders match 1.0.4.
+- Verification: 0 pty scrolls and 0 clipped lines at 80x24, 120x40, 140x40,
+  160x45, 192x48, 200x50, 240x60 and 256x70; one `write(2)` and one `ESC[H`
+  per frame; 44..69 newlines (`rows - 1`); field parity PASS (43 + 2 `--once`
+  fields, 30 counter rows, 78 register rows). Unprivileged `--once` still shows
+  the 16 fixed-map counters through `vc4mon`.
+- Before/after frames and a parser check are in
+  [`docs/ui/wide/`](docs/ui/wide/). `vc4top` and `vc4top-dkms` are 1.0.5.
 
 ### 1.0.4 (2026-11-19)
 

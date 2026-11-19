@@ -27,6 +27,7 @@ Captured on the Raspberry Pi with the stock clocks unchanged:
 | `PERFORMANCE.md` | 1.0.1 repaint measurement |
 | `PERFORMANCE-1.0.2.md` | 1.0.2 re-measurement: frame period, write counts, scrolls, CPU |
 | `REGISTER-ACCESS.md` | 1.0.4 unprivileged `vc4mon` counters, 1.0.3 read-path design and verification (no `/dev/mem`, identical registers, 0 scrolls) |
+| `wide/before-*.txt` / `wide/after-*.txt` | 1.0.5 before/after frames at 160x45, 192x48, 200x50, 240x60, 256x70 plus 80x24, 120x40 and 140x40 controls |
 
 The frame dumps are plain text with ANSI colour and cursor controls stripped, so
 they are reproducible and readable in a diff.
@@ -148,3 +149,62 @@ view uses three columns and keeps every register, queue and counter name intact:
 ...
 | 13  QPU idle cycles   1800322416 3600644832.0 |
 ```
+
+## 1.0.5: wide / horizontal desktop layout (160+ columns)
+
+The 1.0.4 wide tier used three fixed percentages (35/28/37) and put the
+counter table plus the tall `FLAGS / NOTES` panel in the third column. On a
+short desktop terminal that made rows the limiter: the content ended around
+row 34 of 45 and the bottom quarter of the screen was blank, while the
+counter panel was wider than its table needed.
+
+1.0.5 keeps three columns on the top row but sizes them for their content
+(system 31%, QPU 28%, utilization the rest), then places the counter table and
+the notes strip **full width** below. The counter table is split into two
+side-by-side halves, so all 16 sampled sources stay visible; the notes panel
+is reflowed into full-width rows. Both grid rows are stretched to the terminal
+height, and each panel spreads its content between labelled groups, so the
+bottom border of the top row and the counter table line up with the footer at
+every tested height.
+
+Before (1.0.4) at 160x45 — content stops at row 34, 11 blank rows, QPU panel
+20 rows against a 33-row counters/notes column:
+
+```
++- SYSTEM / POWER / MEMORY ----+ +- QPU / QUEUES / VPM --------+ +- COUNTERS --------------------+
+| status ...                   | | ident ...                    | | hardware counter map ...       |
+| ...                          | | ...                          | | 16  QPU valid cycles ...       |
++------------------------------+ +------------------------------+ +--------------------------------+
+                                                                   +- FLAGS / NOTES ---------------+
+                                                                   | flags --once ...             |
+...
+(rows 35-45 blank)
+```
+
+After (1.0.5) at 160x45 — three content-sized panels over a full-width,
+two-up counter table and a full-width notes strip; no blank band:
+
+```
++- SYSTEM / POWER / MEMORY ---+ +- QPU / QUEUES / VPM ---------+ +- UTILIZATION ----------------+
+| status ...                  | | ident ...                   | | Idle  [#############] 100.0%  |
+| clocks ...                  | | regs ...                    | | Vertex [...]           0.0%   |
+| memory  [ARM] [GPU/CMA]     | | queue ...                   | | ...                           |
++-----------------------------+ +-----------------------------+ +-------------------------------+
++- COUNTERS  hardware counter map (fixed; 16 counters) ----------------------------------------+
+| ID NAME ... VALUE RATE | ID NAME ... VALUE RATE |                                          |
+| 16 QPU valid cycles ...| 0 FEP no-pixels ...    |                                          |
++----------------------------------------------------------------------------------------------+
+flags ... | plain ... | 30 counter sources / 3 pages | rate ... | memory ... | h: full help
+```
+
+The full before/after captures are in this directory as `wide/before-<COLS>x<ROWS>.txt`
+and `wide/after-<COLS>x<ROWS>.txt` (80x24, 120x40, 140x40, 160x45, 192x48,
+200x50, 240x60, 256x70). Every after file passes:
+
+```text
+$ tools/check_wide_capture.py docs/ui/wide/after-160x45.txt 160 45
+PASS: 45 lines, widths=[160], 16 counter rows, 0 clip markers
+```
+
+and the pty replay reports `scrolls=0` with `rows - 1` newlines per frame at
+all eight sizes.

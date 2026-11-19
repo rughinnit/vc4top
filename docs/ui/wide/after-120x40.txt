@@ -1,0 +1,40 @@
+VC4TOP  2026-11-19 19:58:27 WIB  V3D ON  42.9 °C  thr 0x0 (none)  500ms                                                 
++- SYSTEM / POWER / MEMORY ---------------------------+ +- COUNTERS ---------------------------------------------------+
+| status   2026-11-19 19:58:27 WIB  temp 42.9 °C      | | hardware counter map (fixed; 16 counters)  counts            |
+|          thr 0x0 (none)                             | | ID  NAME                              VALUE   RATE cnt/s     |
+| clocks   arm 1200.000 MHz  core 400.000 MHz         | | 13  QPU idle cycles              1800767904 3601535808.0     |
+|          v3d 300.000 MHz  h264 0.000 MHz            | | 14  QPU vertex cycles                     0          0.0     |
+|          isp 0.000 MHz  pixel 0.337 MHz             | | 15  QPU fragment cyc                      0          0.0     |
+|          hdmi 163.683 MHz  vec 108.000 MHz          | | 16  QPU valid cycles                      0          0.0     |
+|          emmc 200.000 MHz                           | | 17  QPU TMU stall                         0          0.0     |
+| volts    core 1.3188V  sdram_c 1.2000V              | | 18  QPU scoreboard st                     0          0.0     |
+| memory   gpu 76 MiB  arm 948 MiB                    | | 19  QPU varying stall                     0          0.0     |
+|          CMA 256 MiB / 98 MiB free                  | | 20  QPU i-cache hits                      0          0.0     |
+|          ARM     [###.........]  28.7%  260/905 MiB | | 21  QPU i-cache miss                      0          0.0     |
+|          GPU/CMA [#######.....]  61.7%  158/256 MiB | | 22  QPU u-cache hits                      0          0.0     |
+| power    v3d active / on  undervolt 0               | | 23  QPU u-cache miss                      0          0.0     |
+|          hvs underrun 0  0 client(s)                | | 24  TMU texture quads                     0          0.0     |
+| display  drm vc4 dev=soc:gpu unique=soc:gpu         | | 25  TMU cache misses                      0          0.0     |
+|          hdmi disconnected   bo none                | | 26  VPM VDW stall                         0          0.0     |
++-----------------------------------------------------+ | 27  VPM VCD stall                         0          0.0     |
++- QPU / QUEUES / VPM --------------------------------+ | 28  L2C hits                              0          0.0     |
+| ident    rev 1  3 slices x 4 QPUs = 12  6 TMUs      | +--------------------------------------------------------------+
+|          16 semaphores  VPM 12 KiB  HDR 1           | +- FLAGS / NOTES ----------------------------------------------+
+| regs     IDENT0 0x02443356  IDENT1 0xc1102431       | | flags --once  --all-counters                                 |
+|          IDENT2 0x00000121                          | |       --regs  --poll [ms]                                    |
+| queue    SRQCS 0x000c0c00  queue 0  req 12  done 12 | |       --frame  --no-color                                    |
+|          qerr 0                                     | | plain: NO_COLOR=1 or piped                                   |
+| pointers SRQPC 0xe2e05000  SRQUA 0x38ba44b0         | | 30 counter sources / 3 pages                                 |
+|          SRQUL 0x00000000                           | | rate = counts/s over interval                                |
+| vpm      VPMBASE 0x00000010  reserved 4096 B        | | memory: ARM /proc, GPU/CMA pool                              |
+|          VPACNTL 0x00000000                         | | util: label + bar + %, printed once                          |
+| sched    SQRSV0 0x00000000  SQRSV1 0x00000000       | | QPU counters are 3D-oriented;                                |
+|          SQCNTL 0x00000000                          | | raw compute may leave idle/                                  |
+| irq      INTCTL 0x00000004  INTENA 0x00000003       | | valid at zero.                                               |
+|          INTDIS 0x00000003                          | | h = full help screen                                         |
+| perf     PCTRE 0x00000000  PCTRC 0x00000000         | +--------------------------------------------------------------+
+|          L2CACTL 0x00000001  SLCACTL 0x00000000     |                                                                 
+| errors   ERRSTAT 0x00001000  VCD-idle               |                                                                 
++-----------------------------------------------------+                                                                 
+q quit  a/[] page  g regs  j/k scroll  p pause  +/- int  h help/flags  [1-37/46]                                        
+units  MHz  °C  MiB  %  cnt/s    ok warn err idle    h full help/flags                                                  
