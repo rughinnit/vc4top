@@ -8,11 +8,11 @@ Installed-Size: 64
 Depends: dkms
 Recommends: linux-headers-arm64 | raspberrypi-kernel-headers
 Filename: pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
-Size: 7064
-MD5sum: dac5a6f396c073cc6e5c84c40f5a0feb
-SHA1: e8156209d3425364bac6c05bb42081e1445f41ee
-SHA256: d885bfaa61cdfe67792a5da4af8a3ad46eb918fdf5798ffa345d6afa64e46d2a
-SHA512: 38ac393b35f0ac4dac168b4bb8ff854921b8bfe39497d3f922fb29f981e7ea93e746c70cd6aabe33738064dfbe269490bd0f3a7880ddc7616928241e1969d324
+Size: 7112
+MD5sum: 37556676eb0a0ec56e4dbca5815ab513
+SHA1: 028aa3f9b9cf3ff3ec2fd77fddc783a76d268ad7
+SHA256: e8b00057e2550e38384b2b771ef3b32551d387b813a9658a77b261b0dfc8a0bc
+SHA512: 6bea63096a81525a80616e7ebed9ba069c70fb3b71b86a89e1b55ae8a9c90d38cd44d21c0419de77b23c929051d81d26d9a5e7312bf0aa594d5ad79ca48e0753
 Homepage: https://github.com/rughinnit/vc4top
 Description: read-only V3D register module for vc4top (DKMS)
  vc4mon is a small read-only out-of-tree kernel module that exposes the
@@ -34,15 +34,15 @@ Version: 1.0.3
 Priority: optional
 Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 352
+Installed-Size: 353
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
 Filename: pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-Size: 112372
-MD5sum: f2a49d08ef669c1e7fe37bb66134bcc3
-SHA1: 58b1a90d26885f8a7590529d3fd1b0c58319afc9
-SHA256: 8f58e307111d19460cf02a5d966e93eb09770c9d8878b85713b131aef534cb4c
-SHA512: 6db236b944193843d041f128f242b834e7194948222329f5f065a24b2451fe8cb1bf085f144dc985f8d54be6068b400b8e8925e706e3d12d3f2b460e45002ee0
+Size: 112622
+MD5sum: e9c4b8ac0ec59f0fb68a0ea722d70556
+SHA1: 91d16ac5bea5157302d6ca777be6502f00a6b6fa
+SHA256: 33466ffb99175503b28ef91245f439b2353bd554c8d1b77f10bb002154cadf0d
+SHA512: 234097c3ee2b617401f15d4091a10a2c18a66c74926d8c3484cb8fcf8852e3733e8705cfc9dd5684cc9d8688aff4396cf7d86f0e9c7e731b67ede3d6e31f87a4
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV
