@@ -52,12 +52,30 @@ mismatches: 0
 
 The `[ QPU / SCHEDULER ]` section (IDENT0/1/2 and the derived configuration,
 SRQCS, VPMBASE, VPACNTL, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL,
-INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL, ERRSTAT):
+INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL, ERRSTAT) is 20 keyed
+lines carrying the 43 register-derived values. Across five interleaved
+root/unprivileged pairs:
 
 ```text
-QPU lines user/root: 25 25
-identical: True
+pair 1  diffs: ERRSTAT
+pair 2  diffs: none
+pair 3  diffs: none
+pair 4  diffs: ERRSTAT
+pair 5  diffs: ERRSTAT
 ```
+
+`ERRSTAT` is not a read-path difference: bit 12 is the live VCD-idle status
+and flips as the display engine starts and stops. As a control, six
+consecutive **root** runs also differ only in `ERRSTAT`:
+
+```text
+root-vs-root 2..6  diffs: ERRSTAT
+```
+
+Two of the five pairs are identical in all 20 QPU fields, and the only field
+that ever differed is the live status bit. The raw 78-register comparison
+against the kernel's own dump (above), read back to back, is exact for every
+register.
 
 System values that differ between the two runs (temperature, ARM clock,
 MemAvailable) are live telemetry, not V3D registers.
