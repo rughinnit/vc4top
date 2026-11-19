@@ -3,7 +3,7 @@
 `vc4top` is published as an `arm64` Debian package and through a signed apt
 repository hosted on GitHub Pages.
 
-- **Package version:** `1.0.1`
+- **Package version:** `1.0.2`
 - **Architecture:** `arm64` (Raspberry Pi OS / Debian)
 - **Repository suite/component:** `stable main`
 - **Signing key fingerprint:** `E4CB3BA058DAAB2BE60EF5D6B736BB9A48B94108`
@@ -16,12 +16,12 @@ instructions in the README on bookworm, or rebuild the package there.
 ## One-line install (no repository)
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.1_arm64.deb
-sudo apt install ./vc4top_1.0.1_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
+sudo apt install ./vc4top_1.0.2_arm64.deb
 ```
 
 The `.deb` is also committed to the repository at
-`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.1_arm64.deb`.
+`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.2_arm64.deb`.
 
 ## Signed apt repository
 
@@ -99,7 +99,7 @@ Remove the untracked copy, then install the package:
 ```bash
 sudo rm -f /usr/local/bin/vc4top
 hash -r
-sudo apt install ./vc4top_1.0.1_arm64.deb    # or: sudo apt install vc4top
+sudo apt install ./vc4top_1.0.2_arm64.deb    # or: sudo apt install vc4top
 which -a vc4top                              # must print /usr/bin/vc4top only
 dpkg -S /usr/bin/vc4top                      # must print: vc4top: /usr/bin/vc4top
 ```
@@ -111,6 +111,13 @@ The package installs the binary at `/usr/bin/vc4top`, documentation under
 
 ## Changelog
 
+- `1.0.2` (2026-11-19): always-on footer legend, ARM and GPU/CMA memory
+  bars with percentages, one-line-per-metric utilization, narrow layout order
+  tuned for 80x24, and two new `--once` memory fields. The 43 baseline fields,
+  30 counter rows and 78 register rows are unchanged in name/order
+  (`tools/field_parity.py`). No repaint regression. See
+  [ui/PARITY-1.0.2.md](ui/PARITY-1.0.2.md) and
+  [ui/PERFORMANCE.md](ui/PERFORMANCE.md).
 - `1.0.1` (2026-11-19): live-view repaint fix (single buffered write, alternate
   screen, autowrap off, height clamp, SIGWINCH relayout, exit-path restore) and
   round-robin system sampling. See [ui/PERFORMANCE.md](ui/PERFORMANCE.md).
@@ -119,7 +126,7 @@ The package installs the binary at `/usr/bin/vc4top`, documentation under
 ## Repository layout
 
 ```text
-pool/main/v/vc4top/vc4top_1.0.1_arm64.deb
+pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
 dists/stable/Release
 dists/stable/InRelease
 dists/stable/Release.gpg

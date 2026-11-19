@@ -1,0 +1,24 @@
+VC4TOP  2026-11-19 14:17:10 WIB  V3D ON  55.3 °C  thr 0x0 (none)  500ms
+ status   2026-11-19 14:17:10 WIB  temp 55.3 °C  thr 0x0 (none)
+ clocks   arm 1200.000 MHz  core 400.000 MHz  v3d 300.000 MHz  h264 0.000 MHz
+          isp 0.000 MHz  pixel 0.338 MHz  hdmi 163.683 MHz  vec 108.000 MHz
+          emmc 200.000 MHz
+ volts    core 1.3062V  sdram_c 1.2000V
+ memory   gpu 76 MiB  arm 948 MiB  CMA 256 MiB / 247 MiB free
+          ARM     [####....................]  18.3%  166/905 MiB
+          GPU/CMA [#.......................]   3.5%  9/256 MiB
+ power    v3d active / on  undervolt 0  hvs underrun 0  0 client(s)
+ display  drm vc4 dev=soc:gpu unique=soc:gpu  hdmi disconnected   bo none
+UTILIZATION --------------------------------------------------------------------
+ Idle        [..............................]   0.0%
+ Vertex      [###############...............]  50.0%
+ Fragment    [..............................]   0.0%
+ Valid       [..............................]   0.0%
+ Stall TMU   [###############...............]  50.0%
+ Stall SB    [..............................]   0.0%
+ Stall Vary  [..............................]   0.0%
+COUNTERS  page 1/3  QPU/GPU primary (13-28)  counts ----------------------------
+ ID  NAME                              VALUE   RATE cnt/s
+ 13  QPU idle cycles                       0          0.0
+q quit  a page  g regs  j/k scroll  p pause  +/- int  h help  [1-21/48]
+units  MHz °C MiB % cnt/s   ok warn err idle

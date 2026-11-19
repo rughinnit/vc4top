@@ -11,13 +11,21 @@ Captured on the Raspberry Pi with the stock clocks unchanged:
 
 | File | What it is |
 |---|---|
-| `before-once.txt` / `after-once.txt` | full `--once` snapshot |
+| `before-once.txt` / `after-once.txt` | full `--once` snapshot (1.0.0 redesign) |
 | `before-regs.txt` / `after-regs.txt` | `--once --regs` (includes all 78 registers) |
 | `before-all-counters.txt` / `after-all-counters.txt` | `--all-counters` (30 sources) |
 | `before-frame-80x24.txt` / `after-frame-80x24.txt` | one live frame at 80x24 |
 | `before-frame-140x40.txt` / `after-frame-140x40.txt` | one live frame at 140x40 |
+| `1.0.2-once.txt` | `--once` at 1.0.2, including the two memory fields |
+| `1.0.2-all-counters.txt` | `--all-counters` at 1.0.2 (30 sources) |
+| `1.0.2-regs.txt` | `--once --regs` at 1.0.2 (78 registers) |
+| `1.0.2-frame-80x24.txt` | 1.0.2 live frame at 80x24: legend, memory bars, utilization, counters |
+| `1.0.2-frame-100x30.txt` | 1.0.2 two-column live frame at 100x30 |
+| `1.0.2-frame-140x40.txt` | 1.0.2 three-column live frame at 140x40 |
 | `FIELD-PARITY.md` | field-by-field checklist and parity result |
-| `PERFORMANCE.md` | 1.0.1 repaint measurement: frame period, write counts, scrolls, CPU |
+| `PARITY-1.0.2.md` | 1.0.2 parity output: 43 old + 2 memory fields, 30 counters, 78 registers |
+| `PERFORMANCE.md` | 1.0.1 repaint measurement |
+| `PERFORMANCE-1.0.2.md` | 1.0.2 re-measurement: frame period, write counts, scrolls, CPU |
 
 The frame dumps are plain text with ANSI colour and cursor controls stripped, so
 they are reproducible and readable in a diff.
@@ -52,6 +60,49 @@ they are reproducible and readable in a diff.
    `LEGEND / HELP` panel with the colour key, all keys, all flags and the
    counter-rate explanation. `h` opens the full help screen, which also lists the
    flags and units.
+
+## 1.0.2: always-on legend, memory bars and one-line utilization
+
+The compact legend is now built into the live view: the last two rows always
+show the keys (with the visible line range) and the units/colour key, at every
+terminal size. `h` still opens the full help/flags screen. Memory gained two
+bars — `ARM` (`MemTotal - MemAvailable`) and `GPU/CMA` (`CmaTotal - CmaFree`) —
+each with a percentage and `used/total MiB`, while the raw firmware split and
+CMA free stay on the `memory` line. Each utilization metric is a single line
+(label + bar + one percentage), so no number is printed twice.
+
+80x24, 1.0.2 (colour and cursor controls stripped):
+
+```
+VC4TOP  2026-11-19 14:17:10 WIB  V3D ON  55.3 °C  thr 0x0 (none)  500ms
+ status   2026-11-19 14:17:10 WIB  temp 55.3 °C  thr 0x0 (none)
+ clocks   arm 1200.000 MHz  core 400.000 MHz  v3d 300.000 MHz  h264 0.000 MHz
+          isp 0.000 MHz  pixel 0.338 MHz  hdmi 163.683 MHz  vec 108.000 MHz
+          emmc 200.000 MHz
+ volts    core 1.3062V  sdram_c 1.2000V
+ memory   gpu 76 MiB  arm 948 MiB  CMA 256 MiB / 247 MiB free
+          ARM     [####....................]  18.3%  166/905 MiB
+          GPU/CMA [#.......................]   3.5%  9/256 MiB
+ power    v3d active / on  undervolt 0  hvs underrun 0  0 client(s)
+ display  drm vc4 dev=soc:gpu unique=soc:gpu  hdmi disconnected   bo none
+UTILIZATION --------------------------------------------------------------------
+ Idle        [..............................]   0.0%
+ Vertex      [###############...............]  50.0%
+ Fragment    [..............................]   0.0%
+ Valid       [..............................]   0.0%
+ Stall TMU   [###############...............]  50.0%
+ Stall SB    [..............................]   0.0%
+ Stall Vary  [..............................]   0.0%
+COUNTERS  page 1/3  QPU/GPU primary (13-28)  counts ----------------------------
+ ID  NAME                              VALUE   RATE cnt/s
+ 13  QPU idle cycles                       0          0.0
+q quit  a page  g regs  j/k scroll  p pause  +/- int  h help  [1-21/48]
+units  MHz °C MiB % cnt/s   ok warn err idle
+```
+
+The full frames are in `1.0.2-frame-80x24.txt`, `1.0.2-frame-100x30.txt` and
+`1.0.2-frame-140x40.txt`; the parity output is in `PARITY-1.0.2.md` and the
+repaint/CPU re-measurement in `PERFORMANCE-1.0.2.md`.
 
 ## Before / after at 80x24
 

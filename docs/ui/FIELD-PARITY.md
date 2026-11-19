@@ -86,3 +86,16 @@ boot: 43 -> 43 keyed fields in the same order; 30 -> 30 all-counter rows with
 identical IDs/names; 78 -> 78 register rows with identical names/order. Only
 volatile values (time, temperature, CMA free, live clocks, counters, SRQCS,
 PCTRE/PCTRC) differ. RESULT: PASS
+
+## 1.0.2 re-check
+
+1.0.2 adds two `--once` memory fields after the unchanged `gpu mem:`, `arm mem:`
+and `cma:` rows:
+
+- `arm mem used:` — `166 / 905 MiB (18.3% used, MemTotal-MemAvailable)`
+- `gpu cma used:` — `9 / 256 MiB (3.5% used, CmaTotal-CmaFree)`
+
+`tools/field_parity.py --baseline /tmp/vc4top_101 --new build/vc4top` reports
+43 baseline fields preserved in order, exactly those two additions (45 total),
+30 identical counter rows and 78 identical register rows. RESULT: PASS. The
+full output is in [PARITY-1.0.2.md](PARITY-1.0.2.md).

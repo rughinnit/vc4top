@@ -7,8 +7,9 @@ Realtime terminal monitor for the Broadcom **VideoCore IV** GPU/QPU (Raspberry P
 ## What it shows
 
 - **System / power**: arm, core, V3D, H264, ISP, pixel, HDMI, VEC and eMMC clocks; core/SDRAM voltages; temperature; decoded throttle bits; GPU/ARM memory split; CMA; V3D runtime-PM state; undervoltage alarm; HVS underrun; DRM name; HDMI status/mode; buffer/client counts.
+- **Memory utilization**: the raw firmware split and CMA free stay visible, plus two live bars with percentage and used/total MiB — `ARM` (`MemTotal - MemAvailable` from `/proc/meminfo`) and `GPU/CMA` (`CmaTotal - CmaFree`, the pool carved out for the GPU).
 - **QPU / scheduler / VPM**: IDENT0/1/2, revision, slices, QPUs/slice, TMUs/slice, total QPUs/TMUs, semaphores, VPM size, HDR support, SRQCS queue/requests/completed/qerr, VPMBASE reserved bytes, VPACNTL, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL, INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL and decoded ERRSTAT.
-- **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall bars computed from counter sources 13-19.
+- **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall metrics from counter sources 13-19, one line each: label + bar + a single percentage.
 - **Counters**: all **30** V3D counter sources, on three pages (the hardware has 16 counters, so pages are used):
   - page 1: QPU/GPU primary, sources 13-28
   - page 2: FEP/TLB/PTB/PSE, sources 0-15
@@ -37,8 +38,8 @@ vc4top
 A prebuilt package and a signed apt repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.1_arm64.deb
-sudo apt install ./vc4top_1.0.1_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
+sudo apt install ./vc4top_1.0.2_arm64.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -56,12 +57,12 @@ sudo vc4top --no-color
 
 The layout adapts to the terminal:
 
-- **136+ columns**: three columns (system + utilization, QPU/queues/VPM, counters + legend), so status, queues and counters are visible together at 140x40.
-- **100-135 columns**: two columns (status/QPU on the left, counters/legend on the right).
-- **Under 100 columns**: one compact column. Status comes first, then QPU/queues, then utilization, then counters. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
-- At 80x24 the first screen shows system status, QPU/scheduler state and utilization; scroll down for the full counter table and page legend.
+- **136+ columns**: three columns (system/power/memory + utilization, QPU/queues/VPM, counters + flags/notes), so status, memory, queues and counters are visible together at 140x40.
+- **100-135 columns**: two columns (system/QPU/utilization on the left, counters/flags on the right).
+- **Under 100 columns**: one compact column: system status + memory bars, all seven utilization bars, the counter table, then QPU/queues/VPM. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
+- At 80x24 the first screen shows system status with both memory bars, every utilization metric, and the counter table header with its first row; the QPU/queue/VPM section and the rest of the table are one scroll down. The always-on two-row legend never overlaps it.
 
-Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is kept in `--once`), `°C` for temperature, `MiB` for memory, `counts`/`cnt/s` for counters and `%` for utilization. Colour is automatic: `NO_COLOR=1`, `--no-color`, or piping the output selects plain text. The footer carries a compact key legend; `h` lists keys, modes and units.
+Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is kept in `--once`), `°C` for temperature, `MiB` for memory, `counts`/`cnt/s` for counters and `%` for utilization. Colour is automatic: `NO_COLOR=1`, `--no-color`, or piping the output selects plain text. A compact key/unit/colour legend is always visible in the footer; `h` opens the full help screen with the flags and the memory/utilization definitions.
 
 ### Keys
 
@@ -103,6 +104,28 @@ If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 
 ## Changelog
+
+### 1.0.2 (2026-11-19)
+
+- Always-on compact legend: two fixed footer rows show the keys (with the
+  visible line range) and the units/colour key at every terminal size. `h`
+  still opens the full help/flags screen, which is now also clamped to the
+  terminal height so it cannot scroll.
+- Real memory utilization: `ARM` (`MemTotal - MemAvailable`) and `GPU/CMA`
+  (`CmaTotal - CmaFree`) bars with percentage and used/total MiB next to the
+  unchanged raw firmware split and CMA free values.
+- Utilization is represented once per metric: label + bar + one percentage per
+  line, no duplicated percentage summary. All seven values (idle, vertex,
+  fragment, valid, TMU/scoreboard/varying stall) are kept.
+- Narrow layout order: status/memory, utilization, counters, then QPU/queues/
+  VPM, so the 80x24 first screen shows the memory bars, all utilization lines
+  and the counter table header without the legend pushing anything away.
+- `--once` gains exactly two fields (`arm mem used:`, `gpu cma used:`); the 43
+  baseline fields, 30 counter rows and 78 register rows are unchanged in
+  name/order. The new `tools/field_parity.py` checks this and reports PASS.
+- No repaint regression: still one `write(2)` per frame, one `ESC[H`, no
+  newline on the last row, 0 scrolls at 80x24, 0.20 ms frame build
+  (0.41 ms at 140x40), ~0.85 % CPU — equal to 1.0.1.
 
 ### 1.0.1 (2026-11-19)
 

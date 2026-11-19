@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(vc4top VERSION 1.0.1 LANGUAGES CXX)
+project(vc4top VERSION 1.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,10 +25,11 @@ set(CPACK_PACKAGE_CONTACT "rughinnit <rughinnit@users.noreply.github.com>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Realtime VideoCore IV / V3D QPU telemetry monitor")
 set(CPACK_PACKAGE_DESCRIPTION "btop-style terminal telemetry monitor for the Broadcom VideoCore IV
 GPU/QPU found on Raspberry Pi 1, 2, 3, Zero and CM1/CM3. Shows system clocks,
-voltages, temperature and throttling; QPU scheduler, queues and VPM state; all
-30 V3D performance-counter sources; and the full V3D register map. The TUI
-adapts to the terminal width and has headless snapshot, counter-dump,
-register-dump and CSV polling modes. Requires root at runtime to map /dev/mem.")
+voltages, temperature, throttling and ARM/GPU-CMA memory utilization; QPU
+scheduler, queues and VPM state; all 30 V3D performance-counter sources; and the
+full V3D register map. The TUI adapts to the terminal width and has headless
+snapshot, counter-dump, register-dump and CSV polling modes. Requires root at
+runtime to map /dev/mem.")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/rughinnit/vc4top")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
 

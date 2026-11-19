@@ -73,6 +73,10 @@ struct SysData {
     std::string arm_clk, core_clk, v3d_clk, h264_clk, isp_clk;
     std::string pixel_clk, hdmi_clk, vec_clk, emmc_clk;
     std::string gpu_mem, arm_mem, cma;
+    // Numeric memory pools (kB) used for the live bars and the --once
+    // percentages. Filled from /proc/meminfo in collect_sys_local().
+    long mem_total_kb = -1, mem_avail_kb = -1;
+    long cma_total_kb = -1, cma_free_kb = -1;
     std::string v3d_state, v3d_control, undervolt;
     std::string hvs_underrun, drm, hdmi_status, hdmi_mode, bo_stats, clients;
 };
@@ -270,6 +274,80 @@ std::string cma_units(const std::string& c)
     return c;
 }
 
+struct MemStat {
+    bool valid = false;
+    long used_mib = 0;
+    long total_mib = 0;
+    double pct = 0.0;
+};
+
+// Percentage is derived from the same rounded MiB numbers that are printed,
+// so "218/905 MiB" always agrees with "24.1%". `free_kb` is MemAvailable for
+// ARM and CmaFree for the GPU pool; used MiB is total MiB minus free MiB so the
+// raw memory line and the bar always add up to the same total.
+MemStat mem_stat(long total_kb, long free_kb)
+{
+    MemStat m;
+    if (total_kb <= 0 || free_kb < 0) return m;
+    m.total_mib = (total_kb + 512) / 1024;
+    long free_mib = (free_kb + 512) / 1024;
+    if (free_mib > m.total_mib) free_mib = m.total_mib;
+    m.used_mib = m.total_mib - free_mib;
+    if (m.total_mib <= 0) return m;
+    m.pct = 100.0 * static_cast<double>(m.used_mib) / static_cast<double>(m.total_mib);
+    m.valid = true;
+    return m;
+}
+
+// ARM memory: MemTotal minus MemAvailable from /proc/meminfo.
+MemStat arm_mem_stat(const SysData& s)
+{
+    if (s.mem_total_kb <= 0 || s.mem_avail_kb < 0) return MemStat();
+    return mem_stat(s.mem_total_kb, s.mem_avail_kb);
+}
+
+// GPU pool: the CMA region carved out for the firmware/GPU; used = CmaTotal -
+// CmaFree. The firmware split itself (vcgencmd get_mem gpu) stays visible as a
+// raw value next to it.
+MemStat gpu_cma_stat(const SysData& s)
+{
+    if (s.cma_total_kb <= 0 || s.cma_free_kb < 0) return MemStat();
+    return mem_stat(s.cma_total_kb, s.cma_free_kb);
+}
+
+const char* mem_color(double pct)
+{
+    if (pct >= 90.0) return K_RED;
+    if (pct >= 75.0) return K_YELLOW;
+    return K_GREEN;
+}
+
+// width = cells available for this line (the caller adds its 9-column indent
+// separately). The used/total MiB tail is kept whenever it fits; on very
+// narrow columns it degrades to "M" and then to the percentage only, so the
+// bar always stays inside the column instead of being clipped.
+std::string mem_bar_line(const std::string& label, const MemStat& m, int width)
+{
+    std::string lab = colorize(K_CYAN, pad_visible(label, 7));
+    if (!m.valid) return lab + " n/a";
+    char full[96], compact[96], pct_only[32];
+    snprintf(full, sizeof(full), " %5.1f%%  %ld/%ld MiB", m.pct, m.used_mib, m.total_mib);
+    snprintf(compact, sizeof(compact), " %5.1f%%  %ld/%ldM", m.pct, m.used_mib, m.total_mib);
+    snprintf(pct_only, sizeof(pct_only), " %5.1f%%", m.pct);
+    const int base = 7 + 1 + 2; // label, space, brackets
+    const char* tail = full;
+    if (base + static_cast<int>(strlen(full)) + 6 > width) tail = compact;
+    if (base + static_cast<int>(strlen(compact)) + 6 > width) tail = pct_only;
+    const int barw = std::max(6, std::min(24, width - base - static_cast<int>(strlen(tail))));
+    const double p = std::max(0.0, std::min(100.0, m.pct));
+    const int filled = static_cast<int>(p / 100.0 * barw + 0.5);
+    std::string bar = "[";
+    bar += std::string(filled, '#');
+    bar += std::string(std::max(0, barw - filled), '.');
+    bar += "]";
+    return lab + " " + colorize(mem_color(m.pct), bar) + tail;
+}
+
 const char* temp_color(const std::string& t)
 {
     const double v = strtod(t.c_str(), nullptr);
@@ -326,18 +404,34 @@ std::string now_string()
     return buf;
 }
 
-std::string meminfo_kb(const char* key)
+struct MemKb {
+    long total = -1, avail = -1, cma_total = -1, cma_free = -1;
+};
+
+// One read of /proc/meminfo for every memory field the view needs. The live
+// view calls this once per frame, so a single open/read replaces the previous
+// two (and later four) per-key reads.
+MemKb read_meminfo()
 {
+    MemKb m;
     const std::string all = read_file("/proc/meminfo");
-    const std::string k = std::string(key) + ":";
-    const size_t p = all.find(k);
-    if (p == std::string::npos) return "";
-    const char* s = all.c_str() + p + k.size();
-    while (*s == ' ' || *s == '\t') ++s;
-    char* end = nullptr;
-    const unsigned long v = strtoul(s, &end, 10);
-    if (end == s) return "";
-    return std::to_string(v);
+    size_t pos = 0;
+    while (pos < all.size())
+    {
+        size_t eol = all.find('\n', pos);
+        if (eol == std::string::npos) eol = all.size();
+        char key[32] = {0};
+        long val = 0;
+        if (sscanf(all.c_str() + pos, "%31[^:]: %ld", key, &val) == 2)
+        {
+            if (!strcmp(key, "MemTotal")) m.total = val;
+            else if (!strcmp(key, "MemAvailable")) m.avail = val;
+            else if (!strcmp(key, "CmaTotal")) m.cma_total = val;
+            else if (!strcmp(key, "CmaFree")) m.cma_free = val;
+        }
+        pos = eol + 1;
+    }
+    return m;
 }
 
 std::string vcgen(const char* what)
@@ -385,13 +479,16 @@ void collect_sys_local(SysData& d)
 {
     d.time = now_string();
     {
-        std::string total = meminfo_kb("CmaTotal");
-        std::string freeb = meminfo_kb("CmaFree");
-        if (total.empty() || freeb.empty())
+        const MemKb mi = read_meminfo();
+        d.mem_total_kb = mi.total;
+        d.mem_avail_kb = mi.avail;
+        d.cma_total_kb = mi.cma_total;
+        d.cma_free_kb = mi.cma_free;
+        if (mi.cma_total < 0 || mi.cma_free < 0)
             d.cma = "n/a";
         else
-            d.cma = "CMA " + std::to_string(atol(total.c_str()) / 1024) + "M/" +
-                std::to_string(atol(freeb.c_str()) / 1024) + "M free";
+            d.cma = "CMA " + std::to_string((mi.cma_total + 512) / 1024) + "M/" +
+                std::to_string((mi.cma_free + 512) / 1024) + "M free";
     }
     d.v3d_state = read_file("/sys/bus/platform/devices/3fc00000.v3d/power/runtime_status");
     d.v3d_control = read_file("/sys/bus/platform/devices/3fc00000.v3d/power/control");
@@ -710,6 +807,18 @@ std::vector<std::string> system_lines(const SysData& s, int width)
         "arm " + mem_with_units(s.arm_mem),
         cma_units(s.cma)}, width));
 
+    // Two pools, each represented exactly once: label + bar + percentage +
+    // used/total MiB. The raw firmware split and CMA free stay on the line
+    // above, so no value is lost.
+    {
+        const std::string ind(9, ' ');
+        const int room = std::max(12, width - 9);
+        b.push_back(clip_vis(ind + mem_bar_line("ARM", arm_mem_stat(s), room),
+            static_cast<size_t>(width)));
+        b.push_back(clip_vis(ind + mem_bar_line("GPU/CMA", gpu_cma_stat(s), room),
+            static_cast<size_t>(width)));
+    }
+
     append(b, packed("power", {
         "v3d " + s.v3d_state + " / " + s.v3d_control,
         "undervolt " + colorize(s.undervolt == "0" ? K_GREEN : K_RED, s.undervolt.empty() ? "n/a" : s.undervolt),
@@ -787,20 +896,24 @@ void utilization_values(const std::vector<CounterValue>& counters, double c[7], 
     if (total <= 0) { c[0] = 1; total = 1; }
 }
 
-std::string make_bar(const std::string& label, double pct, int width)
+// One utilization metric per line: aligned label, bar, single percentage.
+// The bar and the percentage encode the same value, so the number is printed
+// exactly once (the previous layout printed a percentage summary line and a
+// separate bar for every metric).
+std::string make_util_line(const std::string& label, double pct, int barw)
 {
     pct = std::max(0.0, std::min(100.0, pct));
-    int filled = static_cast<int>(pct / 100.0 * width + 0.5);
+    int filled = static_cast<int>(pct / 100.0 * barw + 0.5);
     std::string bar = "[";
     bar += std::string(filled, '#');
-    bar += std::string(std::max(0, width - filled), '.');
+    bar += std::string(std::max(0, barw - filled), '.');
     bar += "]";
     const char* c = K_GREEN;
     if (pct >= 80.0) c = K_RED;
     else if (pct >= 50.0) c = K_YELLOW;
     char pbuf[32];
     snprintf(pbuf, sizeof(pbuf), " %5.1f%%", pct);
-    return label + " " + colorize(c, bar) + pbuf;
+    return colorize(K_CYAN, pad_visible(label, 11)) + " " + colorize(c, bar) + pbuf;
 }
 
 std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width)
@@ -810,50 +923,10 @@ std::vector<std::string> utilization_lines(const std::vector<CounterValue>& coun
     double total = 0;
     utilization_values(counters, c, total);
     std::vector<std::string> b;
-    const bool narrow = width < 96;
-    const int barw = narrow ? 14 : std::max(16, std::min(30, width - 28));
-    if (narrow)
-    {
-        std::vector<std::string> chunks;
-        for (int i = 0; i < 7; ++i)
-        {
-            char pct[16];
-            snprintf(pct, sizeof(pct), "%.1f%%", c[i] / total * 100.0);
-            chunks.push_back(std::string(labels[i]) + " " + pct);
-        }
-        // pack percentage summary first, then small bars two per line
-        std::string line;
-        for (const auto& ch : chunks)
-        {
-            if (!line.empty() && visible_len(line) + 3 + visible_len(ch) > static_cast<size_t>(width))
-            {
-                b.push_back(line);
-                line.clear();
-            }
-            if (!line.empty()) line += "  ";
-            line += ch;
-        }
-        if (!line.empty()) b.push_back(line);
-        std::string bars;
-        for (int i = 0; i < 7; ++i)
-        {
-            std::string one = make_bar(labels[i], c[i] / total * 100.0, barw);
-            if (!bars.empty() && visible_len(bars) + 3 + visible_len(one) > static_cast<size_t>(width))
-            {
-                b.push_back(bars);
-                bars.clear();
-            }
-            if (!bars.empty()) bars += "  ";
-            bars += one;
-        }
-        if (!bars.empty()) b.push_back(bars);
-    }
-    else
-    {
-        for (int i = 0; i < 7; ++i)
-            b.push_back(make_bar(labels[i], c[i] / total * 100.0, barw));
-    }
-    for (auto& l : b) l = clip_vis(l, static_cast<size_t>(width));
+    const int barw = std::max(8, std::min(30, width - 23));
+    for (int i = 0; i < 7; ++i)
+        b.push_back(clip_vis(make_util_line(labels[i], c[i] / total * 100.0, barw),
+            static_cast<size_t>(width)));
     return b;
 }
 
@@ -864,15 +937,19 @@ std::string page_title(int page)
     return "page 3/3  QPU/TMU/VPM/L2C (16-29)";
 }
 
-std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters, int page, int width)
+std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters, int page, int width,
+    bool with_title = true)
 {
     std::vector<std::string> b;
-    std::string title = page_title(page) + "  counts";
-    if (visible_len(title) > static_cast<size_t>(width))
-        title = page_title(page);
-    if (visible_len(title) > static_cast<size_t>(width))
-        title = "page " + std::to_string(page + 1) + "/3";
-    b.push_back(colorize(K_DIM, clip_vis(title, static_cast<size_t>(width))));
+    if (with_title)
+    {
+        std::string title = page_title(page) + "  counts";
+        if (visible_len(title) > static_cast<size_t>(width))
+            title = page_title(page);
+        if (visible_len(title) > static_cast<size_t>(width))
+            title = "page " + std::to_string(page + 1) + "/3";
+        b.push_back(colorize(K_DIM, clip_vis(title, static_cast<size_t>(width))));
+    }
     const int name_w = std::max(8, std::min(28, width - 28));
     char buf[256];
     snprintf(buf, sizeof(buf), "%-3s %-*s %10s %12s", "ID", name_w, "NAME", "VALUE", "RATE cnt/s");
@@ -1007,26 +1084,23 @@ void write_frame(const std::string& frame)
     write_all(frame.data(), frame.size());
 }
 
-std::vector<std::string> legend_lines()
+// Wide layouts have room for the flag/notes panel in addition to the
+// always-on two-row footer legend.
+std::vector<std::string> note_lines()
 {
     return {
-        colorize(K_GREEN, "green") + " ok  " + colorize(K_YELLOW, "yellow") + " warn  " +
-            colorize(K_RED, "red") + " error",
-        colorize(K_DIM, "dim") + " idle/zero",
-        "keys  q quit  a/[] page",
-        "      g regs  j/k scroll",
-        "      p pause  +/- int  h help",
         "flags --once  --all-counters",
         "      --regs  --poll [ms]",
         "      --frame  --no-color",
         "plain: NO_COLOR=1 or piped",
         "30 counter sources / 3 pages",
         "rate = counts/s over interval",
+        "memory: ARM /proc, GPU/CMA pool",
+        "util: label + bar + %, printed once",
         "QPU counters are 3D-oriented;",
         "raw compute may leave idle/",
         "valid at zero.",
-        "Use --poll for scheduler,",
-        "--once/--regs for dumps."};
+        "h = full help screen"};
 }
 
 void compose_three(const std::vector<std::string>& a, const std::vector<std::string>& b,
@@ -1053,13 +1127,13 @@ std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
         const int w2 = cols * 28 / 100;
         const int w3 = cols - w1 - w2 - 2;
         std::vector<std::string> c1;
-        append(c1, box("SYSTEM / POWER", system_lines(sys, w1 - 4), w1));
+        append(c1, box("SYSTEM / POWER / MEMORY", system_lines(sys, w1 - 4), w1));
         append(c1, box("UTILIZATION", utilization_lines(counters, w1 - 4), w1));
         std::vector<std::string> c2;
         append(c2, box("QPU / QUEUES / VPM", qpu_lines(qpu, w2 - 4), w2));
         std::vector<std::string> c3;
         append(c3, box("COUNTERS", counter_lines(counters, page, w3 - 4), w3));
-        append(c3, box("LEGEND / HELP", legend_lines(), w3));
+        append(c3, box("FLAGS / NOTES", note_lines(), w3));
         compose_three(c1, c2, c3, w1, w2, out);
         return out;
     }
@@ -1067,12 +1141,12 @@ std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
     const int left_w = std::max(46, std::min(68, cols * 46 / 100));
     const int right_w = cols - left_w - 1;
     std::vector<std::string> left;
-    append(left, box("SYSTEM / POWER", system_lines(sys, left_w - 4), left_w));
+    append(left, box("SYSTEM / POWER / MEMORY", system_lines(sys, left_w - 4), left_w));
     append(left, box("QPU / QUEUES / VPM", qpu_lines(qpu, left_w - 4), left_w));
     append(left, box("UTILIZATION", utilization_lines(counters, left_w - 4), left_w));
     std::vector<std::string> right;
     append(right, box("COUNTERS", counter_lines(counters, page, right_w - 4), right_w));
-    append(right, box("LEGEND / HELP", legend_lines(), right_w));
+    append(right, box("FLAGS / NOTES", note_lines(), right_w));
     compose_columns(left, right, left_w, 1, out);
     return out;
 }
@@ -1085,12 +1159,15 @@ std::vector<std::string> narrow_content(const SysData& sys, const QpuData& qpu,
     const bool roomy = rows >= 30;
     if (roomy) out.push_back(section_line("STATUS", cols));
     for (const auto& l : system_lines(sys, w)) out.push_back(" " + l);
-    if (roomy) out.push_back(section_line("QPU / QUEUES / VPM", cols));
-    for (const auto& l : qpu_lines(qpu, w)) out.push_back(" " + l);
     out.push_back(section_line("UTILIZATION", cols));
     for (const auto& l : utilization_lines(counters, w)) out.push_back(" " + l);
-    out.push_back(section_line("COUNTERS", cols));
-    for (const auto& l : counter_lines(counters, page, w)) out.push_back(" " + l);
+    // The counter page title replaces the old separate COUNTERS heading, so
+    // the table header + first rows stay on the 80x24 screen now that the
+    // always-on legend occupies two footer rows.
+    out.push_back(section_line("COUNTERS  " + page_title(page) + "  counts", cols));
+    for (const auto& l : counter_lines(counters, page, w, false)) out.push_back(" " + l);
+    out.push_back(section_line("QPU / QUEUES / VPM", cols));
+    for (const auto& l : qpu_lines(qpu, w)) out.push_back(" " + l);
     return out;
 }
 
@@ -1114,7 +1191,10 @@ std::string build_header(const SysData& sys, const QpuData& qpu, bool paused, in
     return pad_visible(clip_vis(h, static_cast<size_t>(cols)), static_cast<size_t>(cols));
 }
 
-std::string build_footer(bool regs_view, int first, int last, int total, int cols)
+// Always-on compact legend, two fixed rows at the bottom of the live view:
+// row 1 = keys + visible-line range, row 2 = units + colour key. `h` still
+// opens the full help/flags screen.
+std::vector<std::string> build_footer(bool regs_view, int first, int last, int total, int cols)
 {
     std::string keys;
     if (cols >= 110)
@@ -1140,7 +1220,24 @@ std::string build_footer(bool regs_view, int first, int last, int total, int col
         keys = keys.substr(0, p);
         f = keys + range;
     }
-    return pad_visible(clip_vis(colorize(K_DIM, f), static_cast<size_t>(cols)), static_cast<size_t>(cols));
+
+    std::string units;
+    if (cols >= 100)
+        units = "units  MHz  " "\xC2\xB0" "C  MiB  %  cnt/s    ";
+    else if (cols >= 70)
+        units = "units  MHz " "\xC2\xB0" "C MiB % cnt/s   ";
+    else
+        units = "MHz " "\xC2\xB0" "C MiB % cnt/s  ";
+    units += colorize(K_GREEN, "ok") + " " + colorize(K_YELLOW, "warn") + " " +
+        colorize(K_RED, "err") + " " + colorize(K_DIM, "idle");
+    if (cols >= 100) units += "    h full help/flags";
+
+    std::vector<std::string> out;
+    out.push_back(pad_visible(clip_vis(colorize(K_DIM, f), static_cast<size_t>(cols)),
+        static_cast<size_t>(cols)));
+    out.push_back(pad_visible(clip_vis(colorize(K_DIM, units), static_cast<size_t>(cols)),
+        static_cast<size_t>(cols)));
+    return out;
 }
 
 void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<CounterValue>& counters,
@@ -1155,7 +1252,9 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
     const int layout_cols = std::max(cols, 40);
 
     const bool tty = isatty(STDOUT_FILENO) != 0;
-    const int avail = std::max(0, rows - 2);
+    // Header + two fixed legend rows; the viewport is what is left.
+    const int footer_rows = (rows >= 5) ? 2 : (rows >= 2 ? 1 : 0);
+    const int avail = std::max(0, rows - 1 - footer_rows);
     std::vector<std::string> content;
     int first = 0, last = 0, total = 0;
 
@@ -1163,7 +1262,7 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
     {
         auto all = register_lines(layout_cols - 4);
         total = static_cast<int>(all.size());
-        const int inner = std::max(0, rows - 4);
+        const int inner = std::max(0, avail - 2);
         const int max_scroll = std::max(0, total - inner);
         if (reg_scroll > max_scroll) reg_scroll = max_scroll;
         if (reg_scroll < 0) reg_scroll = 0;
@@ -1196,7 +1295,12 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
         for (const auto& l : content)
             out.push_back(pad_visible(clip_vis(l, static_cast<size_t>(layout_cols)),
                 static_cast<size_t>(layout_cols)));
-    if (rows >= 2) out.push_back(build_footer(regs_view, first, last, total, layout_cols));
+    if (footer_rows > 0)
+    {
+        const auto foot = build_footer(regs_view, first, last, total, layout_cols);
+        for (int i = 0; i < footer_rows && i < static_cast<int>(foot.size()); ++i)
+            out.push_back(foot[i]);
+    }
 
     // Exactly `rows` physical lines: header + viewport + footer, then blanks.
     while (static_cast<int>(out.size()) < rows) out.push_back(std::string(layout_cols, ' '));
@@ -1304,6 +1408,28 @@ void print_snapshot(bool all_counters, bool regs)
     row("gpu mem:", mem_with_units(sys.gpu_mem));
     row("arm mem:", mem_with_units(sys.arm_mem));
     row("cma:", cma_units(sys.cma));
+    {
+        const MemStat arm = arm_mem_stat(sys);
+        char b[96];
+        if (arm.valid)
+        {
+            snprintf(b, sizeof(b), "%ld / %ld MiB (%.1f%% used, MemTotal-MemAvailable)",
+                arm.used_mib, arm.total_mib, arm.pct);
+            row("arm mem used:", b);
+        }
+        else
+            row("arm mem used:", "n/a");
+
+        const MemStat gpu = gpu_cma_stat(sys);
+        if (gpu.valid)
+        {
+            snprintf(b, sizeof(b), "%ld / %ld MiB (%.1f%% used, CmaTotal-CmaFree)",
+                gpu.used_mib, gpu.total_mib, gpu.pct);
+            row("gpu cma used:", b);
+        }
+        else
+            row("gpu cma used:", "n/a");
+    }
     print_sub("power & display");
     row("v3d power:", sys.v3d_state + " / " + sys.v3d_control);
     row("undervoltage:", sys.undervolt.empty() ? "n/a" : sys.undervolt + (sys.undervolt == "0" ? " (ok)" : " (ALARM)"));
@@ -1478,35 +1604,45 @@ void help_screen()
     get_terminal_size(rows, cols);
     std::vector<std::string> body = {
         "KEYS",
-        "  q          quit",
-        "  a / [ ]    cycle counter pages (13-28, 0-15, 16-29)",
-        "  g          toggle full V3D register dump",
-        "  j / k      scroll registers (g) or the live view",
-        "  p          pause/resume sampling",
-        "  + / -      increase/decrease sample interval",
-        "  h          this help",
-        "",
+        "  q quit    a/[] page    g regs",
+        "  j/k scroll    p pause    +/- interval",
+        "  h this help (any key returns)",
         "FLAGS",
-        "  --once            wide snapshot, primary counters",
-        "  --all-counters    all 30 sources (pages 2/3)",
+        "  --once            wide snapshot + primary counters",
+        "  --all-counters    all 30 counter sources",
         "  --regs            full V3D register map",
         "  --poll [ms]       CSV scheduler stream",
-        "  --frame           render one TUI frame and exit",
-        "  --no-color        disable ANSI colour",
-        "  NO_COLOR=1        environment equivalent (also piped)",
-        "",
-        "Values: hex for registers, MHz for clocks, \xC2\xB0\x43 for temperature,",
-        "counts and counts/s for counters, % for utilization.",
-        "30 counter sources are spread over three pages.",
-        "",
+        "  --frame           one TUI frame, then exit",
+        "  --no-color        plain text (or NO_COLOR=1)",
+        "UNITS",
+        "  MHz clocks, \xC2\xB0\x43 temperature, MiB memory, % utilization,",
+        "  counts and cnt/s for counters, 0x hex for registers",
+        "  the footer legend is always visible",
+        "MEMORY",
+        "  ARM      MemTotal - MemAvailable (/proc/meminfo)",
+        "  GPU/CMA  CmaTotal - CmaFree (GPU pool)",
+        "  each: label + bar + % + used/total MiB",
+        "UTILIZATION",
+        "  one line per metric: label + bar + %",
         "Any key returns."
     };
     int w = std::min(cols - 2, 72);
     auto boxed = box("VC4TOP HELP", body, w);
+    // Same repaint discipline as the live view: one write, never more lines
+    // than the terminal has, and no newline on the last row (which would
+    // scroll the alternate screen).
+    std::vector<std::string> out;
+    const int start = std::max(0, (rows - static_cast<int>(boxed.size())) / 2);
+    for (int i = 0; i < start && static_cast<int>(out.size()) < rows; ++i) out.push_back("");
+    for (const auto& l : boxed)
+        if (static_cast<int>(out.size()) < rows) out.push_back(l);
+
     std::string frame = "\033[H\033[2J";
-    int start = std::max(0, (rows - static_cast<int>(boxed.size())) / 2);
-    for (int i = 0; i < start; ++i) frame += "\n";
-    for (const auto& l : boxed) frame += l + "\n";
+    for (size_t i = 0; i < out.size(); ++i)
+    {
+        frame += pad_visible(clip_vis(out[i], static_cast<size_t>(cols)), static_cast<size_t>(cols));
+        if (i + 1 < out.size()) frame += "\r\n";
+    }
     write_frame(frame);
     unsigned char c;
     while (read(STDIN_FILENO, &c, 1) != 1) std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -1579,6 +1715,13 @@ int main(int argc, char** argv)
 
     if (poll)
     {
+        // Ctrl-C / SIGTERM ends the CSV stream cleanly (exit 0) instead of
+        // relying on the default terminate action.
+        struct sigaction sa = {};
+        sa.sa_handler = on_signal;
+        sigaction(SIGINT, &sa, nullptr);
+        sigaction(SIGTERM, &sa, nullptr);
+        sigaction(SIGHUP, &sa, nullptr);
         poll_loop(interval_ms);
         return 0;
     }

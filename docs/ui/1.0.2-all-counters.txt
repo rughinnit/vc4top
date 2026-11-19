@@ -1,0 +1,100 @@
+VC4TOP - VideoCore IV / V3D wide snapshot
+============================================================
+[ SYSTEM / POWER ]
+-- time & thermal --------------------------------------------------------
+time:            2026-11-19 14:17:08 WIB
+temp:            54.8 °C
+throttled:       0x0 (none)
+-- voltages --------------------------------------------------------------
+core volts:      1.3062V
+sdram_c volts:   1.2000V
+-- clocks (Hz / MHz) -----------------------------------------------------
+arm clock:       1200002000 Hz (1200.002 MHz)
+core clock:      400000000 Hz (400.000 MHz)
+v3d clock:       300000000 Hz (300.000 MHz)
+h264 clock:      0 Hz (0.000 MHz)
+isp clock:       0 Hz (0.000 MHz)
+pixel clock:     337000 Hz (0.337 MHz)
+hdmi clock:      163683000 Hz (163.683 MHz)
+vec clock:       108000000 Hz (108.000 MHz)
+emmc clock:      200000000 Hz (200.000 MHz)
+-- memory ----------------------------------------------------------------
+gpu mem:         76 MiB
+arm mem:         948 MiB
+cma:             CMA 256 MiB / 247 MiB free
+arm mem used:    165 / 905 MiB (18.2% used, MemTotal-MemAvailable)
+gpu cma used:    9 / 256 MiB (3.5% used, CmaTotal-CmaFree)
+-- power & display -------------------------------------------------------
+v3d power:       active / on
+undervoltage:    0 (ok)
+hvs underrun:    0 (events)
+drm:             vc4 dev=soc:gpu unique=soc:gpu
+hdmi:            disconnected
+bo_stats:
+
+[ QPU / SCHEDULER ]
+-- identity & configuration ----------------------------------------------
+IDENT0:          0x02443356
+IDENT1:          0xc1102431
+IDENT2:          0x00000121
+revision:        1
+slices:          3 slices
+QPUs/slice:      4 QPUs/slice (total 12 QPUs)
+TMUs/slice:      2 TMUs/slice (total 6 TMUs)
+semaphores:      16 semaphores
+VPM size:        12 KiB
+HDR support:     1 (yes)
+-- queues & scheduler ----------------------------------------------------
+SRQCS:           0x00000000 queue=0 requests=0 completed=0 qerr=0
+VPMBASE:         0x00000010 reserved=4096 bytes of 12 KiB
+VPACNTL:         0x00000000
+SQRSV0/1:        0x00000000 / 0x00000000
+SQCNTL:          0x00000000
+SRQPC/SRQUA:     0xde601000 / 0x379a4000 (len 0x00000000)
+-- interrupts, counters & caches -----------------------------------------
+INTCTL/ENA/DIS:  0x00000004 / 0x00000003 / 0x00000003
+PCTRE/PCTRC:     0x80000000 / 0x00000000
+L2CACTL/SLCACTL: 0x00000001 / 0x00000000
+-- errors ----------------------------------------------------------------
+ERRSTAT:         0x00001000 VCD-idle
+
+[ COUNTERS page 2/3 ]
+  ID  NAME                                                                    VALUE         RATE
+                                                                              count      count/s
+  --  ------------------------------------------------------------------ ---------- ------------
+   0  FEP Valid primitives that result in no rendered pixels, for all rendered tiles          0          0.0
+   1  FEP Valid primitives for all rendered tiles. (primitives may be counted in more than one tile)          0          0.0
+   2  FEP Early-Z/Near/Far clipped quads                                          0          0.0
+   3  FEP Valid quads                                                             0          0.0
+   4  TLB Quads with no pixels passing the stencil test                           0          0.0
+   5  TLB Quads with no pixels passing the Z and stencil tests                    0          0.0
+   6  TLB Quads with any pixels passing the Z and stencil tests                   0          0.0
+   7  TLB Quads with all pixels having zero coverage                              0          0.0
+   8  TLB Quads with any pixels having non-zero coverage                          0          0.0
+   9  TLB Quads with valid pixels written to color buffer                         0          0.0
+  10  PTB Primitives discarded by being outside the viewport                      0          0.0
+  11  PTB Primitives that need clipping                                           0          0.0
+  12  PSE Primitives that are discarded because they are reversed                 0          0.0
+  13  QPU Total idle clock cycles for all QPUs                                    0          0.0
+  14  QPU Total clock cycles for all QPUs doing vertex/coordinate shading 1800163812 3600327624.0
+  15  QPU Total clock cycles for all QPUs doing fragment shading                  0          0.0
+
+[ COUNTERS page 3/3 ]
+  ID  NAME                                                                    VALUE         RATE
+                                                                              count      count/s
+  --  ------------------------------------------------------------------ ---------- ------------
+  16  QPU Total clock cycles for all QPUs executing valid instructions            0          0.0
+  17  QPU Total clock cycles for all QPUs stalled waiting for TMUs       1800163332 3600326664.0
+  18  QPU Total clock cycles for all QPUs stalled waiting for Scoreboard          0          0.0
+  19  QPU Total clock cycles for all QPUs stalled waiting for Varyings            0          0.0
+  20  QPU Total instruction cache hits for all slices                             0          0.0
+  21  QPU Total instruction cache misses for all slices                           0          0.0
+  22  QPU Total uniforms cache hits for all slices                                0          0.0
+  23  QPU Total uniforms cache misses for all slices                              0          0.0
+  24  TMU Total texture quads processed                                           0          0.0
+  25  TMU Total texture cache misses (number of fetches from memory/L2cache)          0          0.0
+  26  VPM Total clock cycles VDW is stalled waiting for VPM access                0          0.0
+  27  VPM Total clock cycles VCD is stalled waiting for VPM access                0          0.0
+  28  L2C Total Level 2 cache hits                                                0          0.0
+  29  L2C Total Level 2 cache misses                                              0          0.0
+
