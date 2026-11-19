@@ -1,5 +1,5 @@
-fd6d35b5befb2434373c977b6b2ce081842c3e2c68e535aa18590d022d8c9495  pool/main/v/vc4infer/vc4infer_1.0.0_arm64.deb
-1fdeca297734f19e03491319303985b13862b6db613fcd06651509bd710f0781  pip/vc4infer-1.0.0-py3-none-any.whl
+e9a2520468117c8fb63e77ad701beaaea1f8f1b67415cbe19f2d97c1af6cb753  pool/main/v/vc4infer/vc4infer_1.1.0_arm64.deb
+c7cab8351cbf7a4969879e34543863d3a6cbc74b95c5345c384f5c7e0654d6ed  pip/vc4infer-1.1.0-py3-none-any.whl
 def776ca42cc25e6a96423f2b0e82581f2178147601291f2d158b77f906f5108  key.asc
 de7bf5ab4f8590b1250cb304bd68f60650c11b3a80291546dd212a462ca141eb  vc4top-archive-keyring.gpg
 17de846bcdb6ddddff8519abc7fd931ada971c0341e648259a1671257991b501  pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
