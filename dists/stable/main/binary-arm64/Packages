@@ -1,48 +1,49 @@
 Package: vc4top-dkms
 Architecture: all
-Version: 1.0.3
+Version: 1.0.4
 Priority: optional
 Section: kernel
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 64
+Installed-Size: 100
 Depends: dkms
 Recommends: linux-headers-arm64 | raspberrypi-kernel-headers
-Filename: pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
-Size: 7112
-MD5sum: 37556676eb0a0ec56e4dbca5815ab513
-SHA1: 028aa3f9b9cf3ff3ec2fd77fddc783a76d268ad7
-SHA256: e8b00057e2550e38384b2b771ef3b32551d387b813a9658a77b261b0dfc8a0bc
-SHA512: 6bea63096a81525a80616e7ebed9ba069c70fb3b71b86a89e1b55ae8a9c90d38cd44d21c0419de77b23c929051d81d26d9a5e7312bf0aa594d5ad79ca48e0753
+Filename: pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
+Size: 10404
+MD5sum: da7f8d0a2f5ce0b85fea0a340266dfcc
+SHA1: 7b570e9a2cd7a159c221988bbdd73d8d147be51e
+SHA256: 8e6ba91f9ffbff5fcc7567353f72ee0e32e5dcf7c3e09f5ea6d9facd5c293cbe
+SHA512: a95ec37265d2c47546dd12e6f88f2214062db617c43a8b9be0e09ded09585fa014e56ef9f2a87cb24b585aa224bcbf27dfc66f881b21ac7ade85a240094572e0
 Homepage: https://github.com/rughinnit/vc4top
-Description: read-only V3D register module for vc4top (DKMS)
- vc4mon is a small read-only out-of-tree kernel module that exposes the
- VideoCore IV (V3D) register block under /sys/kernel/vc4mon/, so an
- unprivileged vc4top can read the same registers without /dev/mem.
+Description: V3D register and counter module for vc4top (DKMS)
+ vc4mon is a small out-of-tree kernel module that exposes the VideoCore IV
+ (V3D) register block under /sys/kernel/vc4mon/, so an unprivileged vc4top
+ can read the same registers without /dev/mem and sample the performance
+ counters through two write-only files.
  .
  The module does not register a platform driver, does not bind or unbind
- vc4_v3d, does not request_mem_region() and has no write path: every sysfs
- attribute is 0444 and all reads are 32-bit ioread32() loads.
+ vc4_v3d and does not request_mem_region().  ident/regs/perf are read-only
+ 0444; perf_enable (PCTRE) and perf_clear (PCTRC) are the only writable
+ files.  A udev helper grants group vc4 write-only access to those two.
  .
- Source is installed in /usr/src/vc4top-1.0.3 and built for the running
+ Source is installed in /usr/src/vc4top-1.0.4 and built for the running
  kernel with DKMS.  Kernel upgrades rebuild it automatically at boot once
- the matching kernel headers are present.  Performance-counter sampling
- still requires root.
+ the matching kernel headers are present.
 
 Package: vc4top
 Architecture: arm64
-Version: 1.0.3
+Version: 1.0.4
 Priority: optional
 Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 353
+Installed-Size: 369
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
-Filename: pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-Size: 112622
-MD5sum: e9c4b8ac0ec59f0fb68a0ea722d70556
-SHA1: 91d16ac5bea5157302d6ca777be6502f00a6b6fa
-SHA256: 33466ffb99175503b28ef91245f439b2353bd554c8d1b77f10bb002154cadf0d
-SHA512: 234097c3ee2b617401f15d4091a10a2c18a66c74926d8c3484cb8fcf8852e3733e8705cfc9dd5684cc9d8688aff4396cf7d86f0e9c7e731b67ede3d6e31f87a4
+Filename: pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
+Size: 120396
+MD5sum: 52bff92c7ca68984b92a26b16a2b40e0
+SHA1: 21118627be02b18bddcd0d113144f10227bc3ea5
+SHA256: 805904f262ed5c445d6d24da1373a550fbc3364138b0856e5d930973138da462
+SHA512: fc868dc93d3de1ba03a632f950739cd004441b899b9e89342a6545d3655f0637fe650babac168defcf77d60c740c08c0b46b9c759f430e2bbeca6e2ed871b44a
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV
@@ -51,6 +52,7 @@ Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  scheduler, queues and VPM state; all 30 V3D performance-counter sources; and the
  full V3D register map. The TUI adapts to the terminal width and has headless
  snapshot, counter-dump, register-dump and CSV polling modes. Registers are read
- through /dev/mem as root or through the read-only vc4mon sysfs module when
- unprivileged; performance-counter sampling still needs root.
+ through /dev/mem as root or through the vc4mon sysfs module when unprivileged;
+ performance counters are sampled unprivileged through vc4mon's narrow
+ perf_enable/perf_clear write attributes.
 
