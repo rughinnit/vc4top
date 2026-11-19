@@ -32,6 +32,18 @@ sudo cmake --install build
 vc4top
 ```
 
+### Debian package (arm64)
+
+A prebuilt package and a signed apt repository are available:
+
+```bash
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.0_arm64.deb
+sudo apt install ./vc4top_1.0.0_arm64.deb
+```
+
+See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
+run instructions and how to remove an older manual `cmake --install` copy.
+
 ## Usage
 
 `vc4top` with no arguments launches the realtime TUI (like btop). It must run as root because it maps `/dev/mem`.

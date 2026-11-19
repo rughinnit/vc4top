@@ -14,3 +14,9 @@ vc4top
 *.exe
 *.out
 *.deb
+
+# Published Debian artifacts (docs/DEBIAN.md)
+!dist/*.deb
+
+# Generated apt repository, published on the orphan gh-pages branch
+repo/
