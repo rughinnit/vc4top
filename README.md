@@ -103,13 +103,18 @@ A prebuilt package, the `vc4top-dkms` module package and a signed apt
 repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
+curl -fLO https://rughinnit.github.io/vc4-apt/pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4-apt/pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
 sudo apt install ./vc4top_1.0.5_arm64.deb ./vc4top-dkms_1.0.5_all.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
 run instructions and how to remove an older manual `cmake --install` copy.
+
+The signed apt repository at <https://rughinnit.github.io/vc4-apt> is the
+single source for `vc4top`, `vc4top-dkms` and `vc4infer`; the older
+`https://rughinnit.github.io/vc4top` apt path is deprecated and kept only as
+a fallback.
 
 ## Usage
 

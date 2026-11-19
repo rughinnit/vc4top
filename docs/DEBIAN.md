@@ -1,8 +1,10 @@
 # Debian package and apt repository
 
 `vc4top` is published as an `arm64` Debian package, the kernel module as the
-`all` package `vc4top-dkms`, and both through a signed apt repository hosted on
-GitHub Pages.
+`all` package `vc4top-dkms`, and both through the signed apt repository hosted
+on GitHub Pages at <https://rughinnit.github.io/vc4-apt>. That repository is
+the single source for all VideoCore IV packages: `vc4top`, `vc4top-dkms` and
+`vc4infer` (`https://github.com/rughinnit/vc4-apt`).
 
 - **Package version:** `1.0.5`
 - **`vc4top` architecture:** `arm64` (Raspberry Pi OS / Debian)
@@ -18,8 +20,8 @@ instructions in the README on bookworm, or rebuild the package there.
 ## One-line install (no repository)
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
+curl -fLO https://rughinnit.github.io/vc4-apt/pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4-apt/pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
 sudo apt install ./vc4top_1.0.5_arm64.deb ./vc4top-dkms_1.0.5_all.deb
 ```
 
@@ -31,10 +33,14 @@ the two `.debs` can be installed in either order.
 
 ## Signed apt repository
 
+The apt tree lives in [`rughinnit/vc4-apt`](https://github.com/rughinnit/vc4-apt)
+and is served from `https://rughinnit.github.io/vc4-apt`. It carries all three
+packages, so one source line replaces the old per-project repository.
+
 Download and import the archive key:
 
 ```bash
-curl -fsSL https://rughinnit.github.io/vc4top/key.asc \
+curl -fsSL https://rughinnit.github.io/vc4-apt/key.asc \
   | sudo gpg --dearmor -o /usr/share/keyrings/vc4top-archive-keyring.gpg
 ```
 
@@ -42,8 +48,8 @@ Add the source (the same line works on **bookworm** and **trixie**; the
 repository is a single `stable` suite):
 
 ```bash
-echo "deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4top stable main" \
-  | sudo tee /etc/apt/sources.list.d/vc4top.list
+echo "deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4-apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/vc4-apt.list
 sudo apt update
 sudo apt install vc4top vc4top-dkms
 ```
@@ -51,13 +57,13 @@ sudo apt install vc4top vc4top-dkms
 Trixie:
 
 ```bash
-deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4top stable main
+deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4-apt stable main
 ```
 
 Bookworm (packages must be rebuilt against bookworm's older glibc; see above):
 
 ```bash
-deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4top stable main
+deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4-apt stable main
 ```
 
 The keyring is also available as `vc4top-archive-keyring.gpg` in the repository
@@ -301,7 +307,16 @@ key.asc
 
 ## GitHub Pages
 
-The repository tree is pushed to the orphan `gh-pages` branch. If
-`https://rughinnit.github.io/vc4top/` returns 404, enable Pages in
-**Settings → Pages → Build and deployment → Deploy from a branch**, branch
-`gh-pages`, folder `/ (root)`.
+The repository tree is pushed to `main` (root) of `rughinnit/vc4-apt` and served
+as `https://rughinnit.github.io/vc4-apt`. If that URL returns 404, enable Pages
+in **Settings → Pages → Build and deployment → Deploy from a branch**, branch
+`main`, folder `/ (root)`.
+
+## Deprecated location
+
+The apt repository and pip index used to be served from the `gh-pages` branch of
+`rughinnit/vc4top` as `https://rughinnit.github.io/vc4top`. That URL is
+**deprecated**: it is left in place as a read-only fallback for existing
+installs but no longer receives new packages or documentation updates. Move to
+the `vc4-apt` source line above; the archive key is unchanged
+(`E4CB3BA058DAAB2BE60EF5D6B736BB9A48B94108`), so no key rotation is needed.

@@ -3,6 +3,10 @@
 #
 #   GNUPGHOME=~/.gnupg-vc4top tools/build_apt_repo.sh 1.0.5
 #
+# The resulting repo/ tree is published to github.com:rughinnit/vc4-apt
+# (branch main, root), served at https://rughinnit.github.io/vc4-apt.  The old
+# vc4top gh-pages apt tree is deprecated and no longer updated.
+#
 # Expects build/vc4top_<version>_arm64.deb (cmake --build build && cd build &&
 # cpack -G DEB) and build/vc4top-dkms_<version>_all.deb
 # (tools/build_dkms_deb.sh <version>). Only the newest packages are kept in
