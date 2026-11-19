@@ -17,6 +17,7 @@ Captured on the Raspberry Pi with the stock clocks unchanged:
 | `before-frame-80x24.txt` / `after-frame-80x24.txt` | one live frame at 80x24 |
 | `before-frame-140x40.txt` / `after-frame-140x40.txt` | one live frame at 140x40 |
 | `FIELD-PARITY.md` | field-by-field checklist and parity result |
+| `PERFORMANCE.md` | 1.0.1 repaint measurement: frame period, write counts, scrolls, CPU |
 
 The frame dumps are plain text with ANSI colour and cursor controls stripped, so
 they are reproducible and readable in a diff.
