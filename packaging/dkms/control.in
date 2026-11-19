@@ -1,0 +1,23 @@
+Package: vc4top-dkms
+Version: @VERSION@
+Architecture: all
+Maintainer: rughinnit <rughinnit@users.noreply.github.com>
+Installed-Size: @INSTALLED_SIZE@
+Depends: dkms
+Recommends: linux-headers-arm64 | raspberrypi-kernel-headers
+Section: kernel
+Priority: optional
+Homepage: https://github.com/rughinnit/vc4top
+Description: read-only V3D register module for vc4top (DKMS)
+ vc4mon is a small read-only out-of-tree kernel module that exposes the
+ VideoCore IV (V3D) register block under /sys/kernel/vc4mon/, so an
+ unprivileged vc4top can read the same registers without /dev/mem.
+ .
+ The module does not register a platform driver, does not bind or unbind
+ vc4_v3d, does not request_mem_region() and has no write path: every sysfs
+ attribute is 0444 and all reads are 32-bit ioread32() loads.
+ .
+ Source is installed in /usr/src/vc4top-1.0.3 and built for the running
+ kernel with DKMS.  Kernel upgrades rebuild it automatically at boot once
+ the matching kernel headers are present.  Performance-counter sampling
+ still requires root.

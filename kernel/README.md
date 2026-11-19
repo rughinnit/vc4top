@@ -19,8 +19,8 @@ It is deliberately **read-only**:
 
 `3fc00000.v3d` is owned by the `vc4` DRM driver. Unbinding it is unsafe on
 this kernel (it Oopses), and a second platform driver would fail to probe or
-would fight for the same resource. A second read-only ioremap of the same
-4 KiB window is not a claim: it has the same effect as the existing
+would fight for the same resource. A second read-only ioremap of the same 4 KiB
+window is not a claim: it has the same effect as the existing
 `/sys/kernel/debug/dri/0/v3d_regs` debugfs reader, which also reads the live
 block.
 
@@ -47,7 +47,44 @@ register block, and `readl()`/`ioread32()` is what the DRM driver itself uses.
 scheduler/queues, VPM, performance counters (PCTR/PCTRS/PCTRC/PCTRE), debug
 and ERRSTAT.
 
-## Build and install
+## Install (packaged, DKMS)
+
+`vc4mon` is shipped by the `vc4top-dkms` package and built for the running
+kernel by DKMS:
+
+```bash
+sudo apt install vc4top vc4top-dkms
+dkms status                    # vc4top/1.0.3, $(uname -r), aarch64: installed
+ls /sys/kernel/vc4mon/         # ident  perf  regs
+```
+
+Package contents:
+
+```text
+/usr/src/vc4top-1.0.3/vc4mon.c
+/usr/src/vc4top-1.0.3/Makefile
+/usr/src/vc4top-1.0.3/dkms.conf
+/etc/modules-load.d/vc4mon.conf      # loads the module at boot
+```
+
+`dkms.conf` uses `DEST_MODULE_LOCATION[0]="/extra"`; dkms 3.x on Debian
+overrides that with `/updates/dkms`, so the built module is
+`/lib/modules/$(uname -r)/updates/dkms/vc4mon.ko.xz` (check with
+`modinfo -F filename vc4mon`). `postinst` runs
+`dkms add/build/install -m vc4top -v 1.0.3 -k $(uname -r)`, `depmod -a` and
+`modprobe vc4mon`, but **never fails the dpkg run**: with missing headers or
+compiler it prints the `apt install linux-headers-$(uname -r)` command and
+leaves `vc4top`'s root `/dev/mem` path intact.
+
+`AUTOINSTALL="yes"` rebuilds the module for a newly booted kernel as long as
+the matching `linux-headers-*` package is present. After a kernel upgrade the
+module is rebuilt at boot; if the headers are missing, install them and run
+`sudo dpkg-reconfigure vc4top-dkms` (or `sudo dkms autoinstall -k $(uname -r)`).
+
+`prerm` unloads the module (`modprobe -r vc4mon`) and runs
+`dkms remove -m vc4top -v 1.0.3 --all`, ignoring failures.
+
+## Build and install from a git checkout
 
 Kernel headers are required (`linux-headers-$(uname -r)`).
 
@@ -71,6 +108,22 @@ sudo modprobe -r vc4mon
 
 `rmmod` removes the sysfs files and unmaps the window; the DRM driver and the
 V3D hardware state are untouched.
+
+## Verify
+
+```bash
+cat /sys/kernel/vc4mon/ident
+cat /sys/kernel/vc4mon/regs | wc -l        # 78
+cat /sys/kernel/vc4mon/perf | wc -l        # 32
+lsmod | grep vc4mon
+dkms status                                # vc4top/1.0.3: installed
+vc4top --once                              # as an unprivileged user
+```
+
+`dkms status` reporting `installed` for the running kernel is the authoritative
+check that the loaded module was built from the packaged source for exactly
+that kernel. `added` without a build means the headers or compiler were
+missing.
 
 ## Notes
 

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Best effort: unload the module and drop every DKMS registration.  A failure
+# here must not abort removal of the package.
+set -u
+
+PKG=vc4top
+VER=@VERSION@
+
+modprobe -r vc4mon 2>/dev/null || true
+
+if command -v dkms >/dev/null 2>&1; then
+	dkms remove -m "$PKG" -v "$VER" --all 2>/dev/null || true
+fi
+
+exit 0

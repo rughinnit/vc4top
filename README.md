@@ -42,20 +42,30 @@ vc4top
 ### Read-only register module (vc4mon)
 
 `vc4top` reads the V3D register block through `/dev/mem` when run as root. To
-read the same registers unprivileged, build and load the `vc4mon` module. It
+read the same registers unprivileged, install the packaged DKMS module. It
 does **not** bind, unbind or claim `3fc00000.v3d`; it maps the existing MMIO
 resource a second time, read-only, and exposes only `0444` sysfs attributes:
+
+```bash
+sudo apt install vc4top vc4top-dkms          # from the vc4top apt repository
+dkms status                                  # vc4top/1.0.3, <kernel>: installed
+ls /sys/kernel/vc4mon/                       # ident  perf  regs
+```
+
+`vc4top-dkms` installs the source in `/usr/src/vc4top-1.0.3` and builds it for
+the running kernel in `postinst`; `/etc/modules-load.d/vc4mon.conf` loads it at
+boot. Kernel upgrades rebuild it automatically (`AUTOINSTALL="yes"`) as long as
+the matching `linux-headers-*` package is installed. If the headers are
+missing the install still succeeds: `vc4top` keeps working as root and the
+package prints the `apt install linux-headers-$(uname -r)` command to run.
+
+Building from a git checkout instead (no DKMS):
 
 ```bash
 sudo apt install linux-headers-$(uname -r)   # if not already installed
 make -C kernel
 sudo make -C kernel install                   # /lib/modules/$(uname -r)/extra
 sudo modprobe vc4mon
-```
-
-Persist it across boots:
-
-```bash
 echo vc4mon | sudo tee /etc/modules-load.d/vc4mon.conf
 ```
 
@@ -76,11 +86,13 @@ pages as unavailable. See [`kernel/README.md`](kernel/README.md) and
 
 ### Debian package (arm64)
 
-A prebuilt package and a signed apt repository are available:
+A prebuilt package, the `vc4top-dkms` module package and a signed apt
+repository are available:
 
 ```bash
 curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-sudo apt install ./vc4top_1.0.3_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
+sudo apt install ./vc4top_1.0.3_arm64.deb ./vc4top-dkms_1.0.3_all.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -169,8 +181,9 @@ marked unavailable because enabling counters is a hardware write.
 - Field parity with 1.0.2 is unchanged: the same 45 `--once` fields in order,
   30 counter rows and 78 register rows. PTY check: 0 scrolls at 80x24, 140x40,
   in the register view and on the help screen.
-- Module source ships under `kernel/` in the repository and in
-  `/usr/share/doc/vc4top/kernel` in the package.
+- Module source ships under `kernel/` in the repository and separately as the
+  `vc4top-dkms` package (`/usr/src/vc4top-1.0.3`, DKMS, auto-rebuilt on kernel
+  upgrades); a reference copy remains in `/usr/share/doc/vc4top/kernel`.
 
 ### 1.0.2 (2026-11-19)
 

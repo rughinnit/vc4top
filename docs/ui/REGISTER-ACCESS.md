@@ -5,6 +5,38 @@ through `/dev/mem`. Since 1.0.3 an unprivileged run can read the same block
 through `vc4mon`, a read-only out-of-tree module. The root path is unchanged
 and is still the only path that can sample performance counters.
 
+## Install
+
+`vc4mon` ships as the `vc4top-dkms` package (`Architecture: all`) and is built
+for the running kernel by DKMS:
+
+```bash
+sudo apt install vc4top vc4top-dkms
+dkms status                       # vc4top/1.0.3, $(uname -r), aarch64: installed
+ls /sys/kernel/vc4mon/            # ident  perf  regs
+```
+
+Source lives in `/usr/src/vc4top-1.0.3`; `/etc/modules-load.d/vc4mon.conf`
+loads the module at boot. `AUTOINSTALL="yes"` rebuilds it after a kernel
+upgrade while the matching `linux-headers-*` package is installed. If the
+headers are missing, `postinst` prints the exact `apt install
+linux-headers-$(uname -r)` command and exits 0 — `vc4top` keeps working as
+root through `/dev/mem`, and only the unprivileged sysfs path is unavailable.
+
+Verify that the loaded module comes from the package:
+
+```bash
+modinfo -F filename vc4mon          # /lib/modules/$(uname -r)/updates/dkms/vc4mon.ko.xz
+dkms status -m vc4top -v 1.0.3
+```
+
+Unload/reload and remove:
+
+```bash
+sudo modprobe -r vc4mon && sudo modprobe vc4mon
+sudo apt remove vc4top-dkms         # prerm: dkms remove --all, modprobe -r
+```
+
 ## Design
 
 - The module finds the existing `brcm,vc4-v3d` device tree node and calls
