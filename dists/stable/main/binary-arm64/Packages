@@ -1,18 +1,17 @@
 Package: vc4top
+Version: 1.0.1
 Architecture: arm64
-Version: 1.0.0
-Priority: optional
-Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 272
+Installed-Size: 279
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
-Filename: pool/main/v/vc4top/vc4top_1.0.0_arm64.deb
-Size: 84572
-MD5sum: 5d8e6d825e1f19b522983254ca165557
-SHA1: bfa83ba0929cfdd1a0d0afb41b18f60e4aca7e26
-SHA256: 633522acdc7852b6b69e2a651bf9fdba176efeb6d15c5efd3fdea9e4183ef315
-SHA512: 05bcb1a3c29c281adcd37e14810ce880e655e65ee443d70c32f63c55530e08d33a23b77e388fa981203bf0fd2819f99967f650c46503cd9d1383b77eccd690f7
+Filename: pool/main/v/vc4top/vc4top_1.0.1_arm64.deb
+Size: 90096
+MD5sum: 8d1340eed78ccf238d9a8ea5a4341232
+SHA1: cdc8dac06ced8d8ccda9e0473e63ab419525ce2c
+SHA256: c37dbf0dbf3b6f027e525fa090142bc00adb41e6699ad1ea1f5188f759319e69
+Section: utils
+Priority: optional
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV
