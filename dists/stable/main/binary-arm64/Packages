@@ -1,17 +1,18 @@
 Package: vc4top
-Version: 1.0.2
 Architecture: arm64
+Version: 1.0.3
+Priority: optional
+Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 318
+Installed-Size: 343
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
-Filename: pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
-Size: 99710
-MD5sum: 1bce54e4c416fa8aed26d5c4b23da217
-SHA1: 667955efe9cefde4ae67b165da4e46c8e8a83e8f
-SHA256: 8506d344edf9c8021d75114b0bf02dbc21130e8baef696cf70511c356530ab7e
-Section: utils
-Priority: optional
+Filename: pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
+Size: 109270
+MD5sum: d704e897d0946a9e0435a75ffc083a82
+SHA1: 85ae93e3b8c6e0099c34119de90327f0072fd9be
+SHA256: 7751b08e74b38de59b4be7136eeac0774093f3de4ef8dbb96ed7393866a9b77d
+SHA512: f1c0b8ecb0bc60bc5bbe1732eef11ef264481c5e86568542a7a01c8c71041386f20f2642b2b711f74499baee6038a54b2ef83925c2f5ee4fb55121d6b1a1c7ed
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV
@@ -19,6 +20,7 @@ Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  voltages, temperature, throttling and ARM/GPU-CMA memory utilization; QPU
  scheduler, queues and VPM state; all 30 V3D performance-counter sources; and the
  full V3D register map. The TUI adapts to the terminal width and has headless
- snapshot, counter-dump, register-dump and CSV polling modes. Requires root at
- runtime to map /dev/mem.
+ snapshot, counter-dump, register-dump and CSV polling modes. Registers are read
+ through /dev/mem as root or through the read-only vc4mon sysfs module when
+ unprivileged; performance-counter sampling still needs root.
 
