@@ -1,18 +1,18 @@
 Package: vc4top-dkms
 Architecture: all
-Version: 1.0.4
+Version: 1.0.5
 Priority: optional
 Section: kernel
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
 Installed-Size: 100
 Depends: dkms
 Recommends: linux-headers-arm64 | raspberrypi-kernel-headers
-Filename: pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
-Size: 10404
-MD5sum: da7f8d0a2f5ce0b85fea0a340266dfcc
-SHA1: 7b570e9a2cd7a159c221988bbdd73d8d147be51e
-SHA256: 8e6ba91f9ffbff5fcc7567353f72ee0e32e5dcf7c3e09f5ea6d9facd5c293cbe
-SHA512: a95ec37265d2c47546dd12e6f88f2214062db617c43a8b9be0e09ded09585fa014e56ef9f2a87cb24b585aa224bcbf27dfc66f881b21ac7ade85a240094572e0
+Filename: pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
+Size: 10416
+MD5sum: 14aa56f32b5b0732682571ae6635ff75
+SHA1: 2d7dc4f01142e4273448db50e3dce2533c50452e
+SHA256: 17de846bcdb6ddddff8519abc7fd931ada971c0341e648259a1671257991b501
+SHA512: 9da298e83f3cb58fd4b23fb1d48009d5ab42f21dfe601e100668779b82cd1e13857197423fda032f72c799164067e032ca77b98fdfb2479b07354a64fc24784f
 Homepage: https://github.com/rughinnit/vc4top
 Description: V3D register and counter module for vc4top (DKMS)
  vc4mon is a small out-of-tree kernel module that exposes the VideoCore IV
@@ -25,25 +25,25 @@ Description: V3D register and counter module for vc4top (DKMS)
  0444; perf_enable (PCTRE) and perf_clear (PCTRC) are the only writable
  files.  A udev helper grants group vc4 write-only access to those two.
  .
- Source is installed in /usr/src/vc4top-1.0.4 and built for the running
+ Source is installed in /usr/src/vc4top-1.0.5 and built for the running
  kernel with DKMS.  Kernel upgrades rebuild it automatically at boot once
  the matching kernel headers are present.
 
 Package: vc4top
 Architecture: arm64
-Version: 1.0.4
+Version: 1.0.5
 Priority: optional
 Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 369
+Installed-Size: 584
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
-Filename: pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
-Size: 120396
-MD5sum: 52bff92c7ca68984b92a26b16a2b40e0
-SHA1: 21118627be02b18bddcd0d113144f10227bc3ea5
-SHA256: 805904f262ed5c445d6d24da1373a550fbc3364138b0856e5d930973138da462
-SHA512: fc868dc93d3de1ba03a632f950739cd004441b899b9e89342a6545d3655f0637fe650babac168defcf77d60c740c08c0b46b9c759f430e2bbeca6e2ed871b44a
+Filename: pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
+Size: 139898
+MD5sum: b559c5ef65bda633e2ffbddabea49ceb
+SHA1: 0f771d00e757193ea4f0b9d1a7c61d5bb40ea0ac
+SHA256: 8855c1f8ed4bc582f20494607d06031245541c835d0cf6f695d34b10460b8a15
+SHA512: dd561b6d6dfd8d3b7d544ea164a4770ca10055366ab5b701f5ec7424735c795bd7f4daef5e2c9302b8f6361560d674e6a9fd3188a4abeb7ae62aa9dcfab6310b
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV

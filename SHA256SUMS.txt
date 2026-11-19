@@ -1,4 +1,4 @@
-805904f262ed5c445d6d24da1373a550fbc3364138b0856e5d930973138da462  pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
-8e6ba91f9ffbff5fcc7567353f72ee0e32e5dcf7c3e09f5ea6d9facd5c293cbe  pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
+8855c1f8ed4bc582f20494607d06031245541c835d0cf6f695d34b10460b8a15  pool/main/v/vc4top/vc4top_1.0.5_arm64.deb
+17de846bcdb6ddddff8519abc7fd931ada971c0341e648259a1671257991b501  pool/main/v/vc4top/vc4top-dkms_1.0.5_all.deb
 def776ca42cc25e6a96423f2b0e82581f2178147601291f2d158b77f906f5108  key.asc
 de7bf5ab4f8590b1250cb304bd68f60650c11b3a80291546dd212a462ca141eb  vc4top-archive-keyring.gpg
