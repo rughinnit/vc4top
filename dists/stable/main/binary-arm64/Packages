@@ -1,3 +1,35 @@
+Package: vc4infer
+Architecture: arm64
+Version: 1.0.0
+Priority: optional
+Section: misc
+Maintainer: rughinnit <rughinnit@users.noreply.github.com>
+Installed-Size: 14200
+Depends: python3 (>= 3.11), python3-numpy, python3-onnx (>= 1.14), python3-pil, libc6 (>= 2.38)
+Suggests: vc4d
+Filename: pool/main/v/vc4infer/vc4infer_1.0.0_arm64.deb
+Size: 11626972
+MD5sum: 82492d5970abb6d8ffb3a8bb9ea052cc
+SHA1: c9029bca74f88dd161c83aee5fbf4f5ced07e40a
+SHA256: fd6d35b5befb2434373c977b6b2ce081842c3e2c68e535aa18590d022d8c9495
+SHA512: 335e9bf902e70f4e6f61f0defe53435702a619b40ff825782ecd5c81957d9ea85158d144b23abecb8639e88e193b1607668144f3b9efeb12206a354b33fee5ed
+Homepage: https://github.com/rughinnit/vc4-stack
+Description: ONNX inference on the Raspberry Pi VideoCore IV QPUs
+ vc4infer executes fixed-shape fp32 ONNX graphs on the VideoCore IV (V3D) QPUs
+ of the Raspberry Pi 1/2/3, Zero and CM1/CM3.  It ships the libvc4infer engine
+ library and headers, a CLI (run, bench, nodes, selftest), the QPU kernel
+ generator, a set of reference models, and the Python package (vc4infer.
+ Session, vc4infer.YOLO) system-wide.
+ .
+ Every float operation runs on the QPUs; the ARM only moves bytes and does
+ integer shape bookkeeping.  An operator or attribute the engine cannot
+ dispatch raises an error naming the node and its ONNX op type -- there is no
+ CPU fallback.  Detection heads (YOLOv8/YOLO11) are decoded on the host with
+ class-aware NMS.
+ .
+ Unprivileged use goes through the vc4d helper daemon (/run/vc4d.sock); the
+ client never opens /dev/mem.
+
 Package: vc4top-dkms
 Architecture: all
 Version: 1.0.5
