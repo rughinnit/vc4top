@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vc4top — Debian packages</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:52rem;margin:3rem auto;padding:0 1rem;line-height:1.55;color:#1b1f23}
+code,pre{background:#f4f4f5;border-radius:4px}
+code{padding:.1rem .3rem}
+pre{padding:.8rem 1rem;overflow:auto}
+a{color:#0b62c4}
+</style>
+</head>
+<body>
+<h1>vc4top</h1>
+<p>Realtime VideoCore IV / V3D telemetry monitor for Raspberry Pi. Signed
+<code>arm64</code> Debian package, version <strong>1.0.0</strong>.</p>
+
+<h2>Install</h2>
+<pre><code>curl -fsSL https://rughinnit.github.io/vc4top/key.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/vc4top-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/vc4top-archive-keyring.gpg] https://rughinnit.github.io/vc4top stable main" \
+  | sudo tee /etc/apt/sources.list.d/vc4top.list
+
+sudo apt update
+sudo apt install vc4top</code></pre>
+
+<p>Or download the package directly:
+<a href="pool/main/v/vc4top/vc4top_1.0.0_arm64.deb">vc4top_1.0.0_arm64.deb</a>
+(<a href="SHA256SUMS.txt">SHA256</a>).</p>
+
+<h2>Run</h2>
+<pre><code>sudo vc4top          # realtime TUI
+sudo vc4top --once   # headless snapshot</code></pre>
+<p><code>vc4top</code> maps <code>/dev/mem</code>, so it must run as root. It is not setuid.</p>
+
+<p>Source and documentation:
+<a href="https://github.com/rughinnit/vc4top">github.com/rughinnit/vc4top</a>.
+Install notes:
+<a href="https://github.com/rughinnit/vc4top/blob/master/docs/DEBIAN.md">docs/DEBIAN.md</a>.</p>
+</body>
+</html>

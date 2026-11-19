@@ -1,0 +1,39 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: arm64
+Codename: stable
+Components: main
+Date: Thu, 19 Nov 2026 02:47:14 +0000
+Description: vc4top arm64 packages (VideoCore IV telemetry)
+Label: vc4top
+Origin: vc4top
+Suite: stable
+MD5Sum:
+ c4f785172c2119c52f58bb1b686bca76             1181 main/binary-arm64/Packages
+ 1e58423ee7fb00f22cf7a940c9321996              797 main/binary-arm64/Packages.gz
+SHA1:
+ a31fb9ae22d2823b9969a8654756c1763709d273             1181 main/binary-arm64/Packages
+ 90f1780ac77ce324af36b815e17498bd9326e622              797 main/binary-arm64/Packages.gz
+SHA256:
+ 83ba945927a41c3a3a9b36825cd9ff59861d0dc5e16410c661e61bf744fdb657             1181 main/binary-arm64/Packages
+ 8768343df062ba872db979198bc1d071a4c8532674110e4b5fafbba0a19ac276              797 main/binary-arm64/Packages.gz
+SHA512:
+ 58d3d0a1d99f25de59fabe8e1f69731ac6b418eea04b745f9e3174c90b42a801985a0bfd090ccafb7134aa0126eea18e72de49782232708977a42a73bd168bd9             1181 main/binary-arm64/Packages
+ 7b0a3a313f13b73ef2455d490cafe9de563d065256d29634142ca0f0d78f83aa8248f537b8e07e2f2c7fd911de39c849727e19cddb7929d04e18430a1a3eb949              797 main/binary-arm64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEE5Ms7oFjaqyvmDvXWtza7mki5QQgFAmr+YzIACgkQtza7mki5
+QQjKDA/9EmskWtqxU4FT3+EVT7Fw7kV4I/EeGFpuLcvAvicuL9U6/GRemllg+g5D
+wnQC5Nbg3MhHCG8bI8bGrFmEIWHuBqtcbs/Xnn8QAIuaBwVIf2P3mbfh6UEJCkD0
+Skai3ZOP+Qmzm1lel4iH+aFap/MWKvgN51vIOy9WGqD78lBIaZl5PbicQxlD+jXM
+5YojJcwyDZ8Z8TQ7Dv+oo3pzgj0k7EopinvoJ+enb3urf+jEJzz8Azb1dnZUd23K
+XmfwuGo/9e4CvIOTHWuSWK2ni7vXDwHLFlhvHFSu9cC20yYB+RabBpbnphZHwROp
+weaAJVW4d1WIBAg6P56GVbUPvbGOB2200eU5dDVtfsxxKl4WlFL3j2EmJP9dLQIR
+tMVhm+uRBsuqgJdo/PUNX5IJ4yQGVO4jFZqJyvOo2WjUcMJNH5QNCKfijbN2w7QP
+QVwzug2Y5WGyvhZk3J4Lk4R49oscjja/hTfY69Kt124QwTZefYYGGiVHpL/SnUgV
+syNELci+Qat6Jw7RmftLiepJuwkBeNzrOjm8JmO8pI5pNr0N0GfDsPCmIlLQ77yo
+1SwWX4WLm/CGtcc7YdPqd/s4A940rMYcUvEa5umOhUsxuHMbhWSi5MxAJWD8+7Cw
+2XZE6ADoaIo8rBbsWxC3SBj4cF/wLt5MYhMxfgv3y85ZMRRL0wo=
+=8ge6
+-----END PGP SIGNATURE-----

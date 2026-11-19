@@ -1,0 +1,20 @@
+Architectures: arm64
+Codename: stable
+Components: main
+Date: Thu, 19 Nov 2026 02:47:14 +0000
+Description: vc4top arm64 packages (VideoCore IV telemetry)
+Label: vc4top
+Origin: vc4top
+Suite: stable
+MD5Sum:
+ c4f785172c2119c52f58bb1b686bca76             1181 main/binary-arm64/Packages
+ 1e58423ee7fb00f22cf7a940c9321996              797 main/binary-arm64/Packages.gz
+SHA1:
+ a31fb9ae22d2823b9969a8654756c1763709d273             1181 main/binary-arm64/Packages
+ 90f1780ac77ce324af36b815e17498bd9326e622              797 main/binary-arm64/Packages.gz
+SHA256:
+ 83ba945927a41c3a3a9b36825cd9ff59861d0dc5e16410c661e61bf744fdb657             1181 main/binary-arm64/Packages
+ 8768343df062ba872db979198bc1d071a4c8532674110e4b5fafbba0a19ac276              797 main/binary-arm64/Packages.gz
+SHA512:
+ 58d3d0a1d99f25de59fabe8e1f69731ac6b418eea04b745f9e3174c90b42a801985a0bfd090ccafb7134aa0126eea18e72de49782232708977a42a73bd168bd9             1181 main/binary-arm64/Packages
+ 7b0a3a313f13b73ef2455d490cafe9de563d065256d29634142ca0f0d78f83aa8248f537b8e07e2f2c7fd911de39c849727e19cddb7929d04e18430a1a3eb949              797 main/binary-arm64/Packages.gz

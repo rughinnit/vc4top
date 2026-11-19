@@ -1,0 +1,24 @@
+Package: vc4top
+Architecture: arm64
+Version: 1.0.0
+Priority: optional
+Section: utils
+Maintainer: rughinnit <rughinnit@users.noreply.github.com>
+Installed-Size: 272
+Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
+Recommends: raspi-config
+Filename: pool/main/v/vc4top/vc4top_1.0.0_arm64.deb
+Size: 84572
+MD5sum: 5d8e6d825e1f19b522983254ca165557
+SHA1: bfa83ba0929cfdd1a0d0afb41b18f60e4aca7e26
+SHA256: 633522acdc7852b6b69e2a651bf9fdba176efeb6d15c5efd3fdea9e4183ef315
+SHA512: 05bcb1a3c29c281adcd37e14810ce880e655e65ee443d70c32f63c55530e08d33a23b77e388fa981203bf0fd2819f99967f650c46503cd9d1383b77eccd690f7
+Homepage: https://github.com/rughinnit/vc4top
+Description: Realtime VideoCore IV / V3D QPU telemetry monitor
+ btop-style terminal telemetry monitor for the Broadcom VideoCore IV
+ GPU/QPU found on Raspberry Pi 1, 2, 3, Zero and CM1/CM3. Shows system clocks,
+ voltages, temperature and throttling; QPU scheduler, queues and VPM state; all
+ 30 V3D performance-counter sources; and the full V3D register map. The TUI
+ adapts to the terminal width and has headless snapshot, counter-dump,
+ register-dump and CSV polling modes. Requires root at runtime to map /dev/mem.
+
