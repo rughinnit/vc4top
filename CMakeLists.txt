@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(vc4top VERSION 1.0.2 LANGUAGES CXX)
+project(vc4top VERSION 1.0.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,8 @@ target_compile_options(vc4top PRIVATE -Wall -Wextra)
 install(TARGETS vc4top RUNTIME DESTINATION bin)
 install(FILES README.md LICENSE.txt DESTINATION share/doc/vc4top)
 install(DIRECTORY docs/ DESTINATION share/doc/vc4top/docs)
+install(FILES kernel/vc4mon.c kernel/Makefile kernel/README.md
+        DESTINATION share/doc/vc4top/kernel)
 
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "vc4top")
@@ -28,8 +30,9 @@ GPU/QPU found on Raspberry Pi 1, 2, 3, Zero and CM1/CM3. Shows system clocks,
 voltages, temperature, throttling and ARM/GPU-CMA memory utilization; QPU
 scheduler, queues and VPM state; all 30 V3D performance-counter sources; and the
 full V3D register map. The TUI adapts to the terminal width and has headless
-snapshot, counter-dump, register-dump and CSV polling modes. Requires root at
-runtime to map /dev/mem.")
+snapshot, counter-dump, register-dump and CSV polling modes. Registers are read
+through /dev/mem as root or through the read-only vc4mon sysfs module when
+unprivileged; performance-counter sampling still needs root.")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/rughinnit/vc4top")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
 

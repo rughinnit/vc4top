@@ -3,7 +3,7 @@
 `vc4top` is published as an `arm64` Debian package and through a signed apt
 repository hosted on GitHub Pages.
 
-- **Package version:** `1.0.2`
+- **Package version:** `1.0.3`
 - **Architecture:** `arm64` (Raspberry Pi OS / Debian)
 - **Repository suite/component:** `stable main`
 - **Signing key fingerprint:** `E4CB3BA058DAAB2BE60EF5D6B736BB9A48B94108`
@@ -16,12 +16,12 @@ instructions in the README on bookworm, or rebuild the package there.
 ## One-line install (no repository)
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
-sudo apt install ./vc4top_1.0.2_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
+sudo apt install ./vc4top_1.0.3_arm64.deb
 ```
 
 The `.deb` is also committed to the repository at
-`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.2_arm64.deb`.
+`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.3_arm64.deb`.
 
 ## Signed apt repository
 
@@ -60,7 +60,7 @@ verifies it.
 
 ### Run
 
-`vc4top` maps `/dev/mem` and **must run as root**. It is deliberately not
+As root, `vc4top` maps `/dev/mem` exactly as before. It is deliberately not
 installed setuid, so privilege is explicit:
 
 ```bash
@@ -70,6 +70,25 @@ sudo vc4top --all-counters  # all 30 counter sources
 sudo vc4top --regs          # full V3D register dump
 sudo vc4top --help
 ```
+
+Unprivileged use is supported through the read-only `vc4mon` module. It reads
+the same V3D registers from `/sys/kernel/vc4mon/` and never opens `/dev/mem`:
+
+```bash
+sudo apt install linux-headers-$(uname -r)
+make -C /usr/share/doc/vc4top/kernel
+sudo make -C /usr/share/doc/vc4top/kernel install
+sudo modprobe vc4mon
+echo vc4mon | sudo tee /etc/modules-load.d/vc4mon.conf   # load at boot
+
+vc4top --once        # unprivileged; equivalent register values
+vc4top               # TUI; counter pages are marked unavailable
+sudo modprobe -r vc4mon
+```
+
+The module does not claim, bind or unbind `3fc00000.v3d` and has no write
+path. Performance-counter sampling still needs root because it writes
+PCTRE/PCTRC. See [ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
 
 ## Upgrading from a manual `cmake --install`
 
@@ -99,7 +118,7 @@ Remove the untracked copy, then install the package:
 ```bash
 sudo rm -f /usr/local/bin/vc4top
 hash -r
-sudo apt install ./vc4top_1.0.2_arm64.deb    # or: sudo apt install vc4top
+sudo apt install ./vc4top_1.0.3_arm64.deb    # or: sudo apt install vc4top
 which -a vc4top                              # must print /usr/bin/vc4top only
 dpkg -S /usr/bin/vc4top                      # must print: vc4top: /usr/bin/vc4top
 ```
@@ -111,6 +130,13 @@ The package installs the binary at `/usr/bin/vc4top`, documentation under
 
 ## Changelog
 
+- `1.0.3` (2026-11-19): unprivileged register access through the new read-only
+  `vc4mon` kernel module (`/sys/kernel/vc4mon/`). `vc4top` keeps `/dev/mem` for
+  root and uses sysfs otherwise; unprivileged runs never open `/dev/mem` and
+  report the same QPU/register values. Counter pages still need root. No field
+  or layout regression: 45 `--once` fields, 30 counter rows, 78 register rows,
+  0 pty scrolls. Module source ships in `/usr/share/doc/vc4top/kernel`. See
+  [ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
 - `1.0.2` (2026-11-19): always-on footer legend, ARM and GPU/CMA memory
   bars with percentages, one-line-per-metric utilization, narrow layout order
   tuned for 80x24, and two new `--once` memory fields. The 43 baseline fields,
@@ -126,7 +152,7 @@ The package installs the binary at `/usr/bin/vc4top`, documentation under
 ## Repository layout
 
 ```text
-pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
+pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
 dists/stable/Release
 dists/stable/InRelease
 dists/stable/Release.gpg

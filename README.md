@@ -2,6 +2,12 @@
 
 Realtime terminal monitor for the Broadcom **VideoCore IV** GPU/QPU (Raspberry Pi 1, 2, 3, Zero, Zero 2 W and CM1/CM3). It is a btop-style TUI with the whole V3D block exposed, not just the seven 3D-pipeline percentages of the original vc4top.
 
+Register reads work without root through `vc4mon`, a small **read-only**
+out-of-tree kernel module (source in [`kernel/`](kernel/)). Root is only needed
+for performance-counter sampling, which must enable and clear the counters in
+hardware.
+
+
 ![status](https://img.shields.io/badge/GPU-VideoCore%20IV-blue) ![license](https://img.shields.io/badge/license-GPL--3.0-green)
 
 ## What it shows
@@ -33,13 +39,48 @@ sudo cmake --install build
 vc4top
 ```
 
+### Read-only register module (vc4mon)
+
+`vc4top` reads the V3D register block through `/dev/mem` when run as root. To
+read the same registers unprivileged, build and load the `vc4mon` module. It
+does **not** bind, unbind or claim `3fc00000.v3d`; it maps the existing MMIO
+resource a second time, read-only, and exposes only `0444` sysfs attributes:
+
+```bash
+sudo apt install linux-headers-$(uname -r)   # if not already installed
+make -C kernel
+sudo make -C kernel install                   # /lib/modules/$(uname -r)/extra
+sudo modprobe vc4mon
+```
+
+Persist it across boots:
+
+```bash
+echo vc4mon | sudo tee /etc/modules-load.d/vc4mon.conf
+```
+
+Inspect or unload:
+
+```bash
+cat /sys/kernel/vc4mon/ident      # IDENT0/1/2
+cat /sys/kernel/vc4mon/regs       # 78 registers, "<offset> <value>" lines
+cat /sys/kernel/vc4mon/perf       # PCTR0..15 / PCTRS0..15, observation only
+sudo modprobe -r vc4mon
+```
+
+There is no write path: no store handler, no reset, no clock change, no
+unbind. Counter *sampling* still requires root because it writes PCTRE/PCTRC,
+so unprivileged `vc4top` shows the QPU/register view and reports the counter
+pages as unavailable. See [`kernel/README.md`](kernel/README.md) and
+[docs/ui/REGISTER-ACCESS.md](docs/ui/REGISTER-ACCESS.md).
+
 ### Debian package (arm64)
 
 A prebuilt package and a signed apt repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.2_arm64.deb
-sudo apt install ./vc4top_1.0.2_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
+sudo apt install ./vc4top_1.0.3_arm64.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -47,12 +88,16 @@ run instructions and how to remove an older manual `cmake --install` copy.
 
 ## Usage
 
-`vc4top` with no arguments launches the realtime TUI (like btop). It must run as root because it maps `/dev/mem`.
+`vc4top` with no arguments launches the realtime TUI (like btop). As root it
+maps `/dev/mem`; as a normal user it reads the same registers through
+`/sys/kernel/vc4mon/` when the `vc4mon` module is loaded, and never opens
+`/dev/mem`. Counter sampling needs root.
 
 ```bash
 sudo vc4top
 sudo vc4top --interval 250
 sudo vc4top --no-color
+vc4top --once            # unprivileged, if vc4mon is loaded
 ```
 
 The layout adapts to the terminal:
@@ -88,10 +133,15 @@ sudo vc4top --frame           # render one TUI frame and exit
 
 If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI.
 
+Unprivileged runs print the same QPU/register fields as the root path (the
+`vc4mon` module returns one snapshot per sample), but the counter sections are
+marked unavailable because enabling counters is a hardware write.
+
 ## Requirements
 
 - Raspberry Pi with VideoCore IV: Pi 1, 2, 3, Zero, Zero 2 W, CM1/CM3. Not Pi 4/5 (VideoCore VI/VII).
-- Root for `/dev/mem`.
+- Root for `/dev/mem` and for performance-counter sampling; the read-only
+  `vc4mon` module for unprivileged register reads.
 - A powered V3D block. The `vc4cl-v3d-power.service` keeps `3fc00000.v3d/power/control=on`. Otherwise write `on` there yourself.
 - The V3D block must not be suspended (`0xdeadbeef` reads).
 
@@ -104,6 +154,23 @@ If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 
 ## Changelog
+
+### 1.0.3 (2026-11-19)
+
+- Unprivileged register access: new read-only `vc4mon` kernel module exposes
+  IDENT0/1/2, the 78 documented V3D registers and a PCTR/PCTRS observation
+  view under `/sys/kernel/vc4mon/`. The module does not claim or unbind
+  `3fc00000.v3d`; it only ioremaps the existing resource read-only. No write
+  path exists (no store handler, reset, clock change or unbind).
+- `vc4top` uses `/sys/kernel/vc4mon/` when unprivileged and keeps `/dev/mem`
+  for root. Unprivileged runs never open `/dev/mem`; the QPU/register values
+  match the root path field for field. Counter pages need root because
+  sampling writes PCTRE/PCTRC, so they are marked unavailable unprivileged.
+- Field parity with 1.0.2 is unchanged: the same 45 `--once` fields in order,
+  30 counter rows and 78 register rows. PTY check: 0 scrolls at 80x24, 140x40,
+  in the register view and on the help screen.
+- Module source ships under `kernel/` in the repository and in
+  `/usr/share/doc/vc4top/kernel` in the package.
 
 ### 1.0.2 (2026-11-19)
 

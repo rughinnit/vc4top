@@ -26,6 +26,7 @@ Captured on the Raspberry Pi with the stock clocks unchanged:
 | `PARITY-1.0.2.md` | 1.0.2 parity output: 43 old + 2 memory fields, 30 counters, 78 registers |
 | `PERFORMANCE.md` | 1.0.1 repaint measurement |
 | `PERFORMANCE-1.0.2.md` | 1.0.2 re-measurement: frame period, write counts, scrolls, CPU |
+| `REGISTER-ACCESS.md` | 1.0.3 unprivileged `vc4mon` design and verification (no `/dev/mem`, identical registers, 0 scrolls) |
 
 The frame dumps are plain text with ANSI colour and cursor controls stripped, so
 they are reproducible and readable in a diff.

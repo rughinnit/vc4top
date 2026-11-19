@@ -2,7 +2,7 @@ build/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-Makefile
+/Makefile
 vc4top
 *.o
 *.obj
@@ -14,6 +14,18 @@ vc4top
 *.exe
 *.out
 *.deb
+
+# Out-of-tree kernel module build artifacts (kernel/vc4mon.c is tracked)
+kernel/*.ko
+kernel/*.mod
+kernel/*.mod.c
+kernel/.*.cmd
+kernel/*.cmd
+kernel/Module.symvers
+kernel/modules.order
+kernel/.tmp_versions/
+kernel/.module-common.o
+kernel/..module-common.o.cmd
 
 # Published Debian artifacts (docs/DEBIAN.md)
 !dist/*.deb

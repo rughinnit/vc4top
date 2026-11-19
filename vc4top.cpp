@@ -7,8 +7,14 @@
  * counter sources, the full documented register map, QPU scheduler/VPM state,
  * clocks/voltages/thermal/throttle, CMA/DRM/display state and a live TUI.
  *
- * Requires root (/dev/mem) and a powered V3D block. The vc4cl-v3d-power
- * service (or writing "on" to 3fc00000.v3d/power/control) keeps it alive.
+ * Register access: as root, vc4top maps /dev/mem exactly as before.  When run
+ * unprivileged it reads the same V3D registers through the read-only
+ * /sys/kernel/vc4mon/ interface (the out-of-tree vc4mon module), with no
+ * /dev/mem and no hardware writes.  Counter sampling enables/clears the V3D
+ * performance counters, so it remains root-only.
+ *
+ * The V3D block must be powered: the vc4cl-v3d-power service (or writing "on"
+ * to 3fc00000.v3d/power/control) keeps it alive.
  *
  * License: GPL-3.0 (see LICENSE.txt).
  */
@@ -24,6 +30,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -47,7 +54,14 @@ constexpr size_t MAP_SIZE = 0x1000;
 constexpr uint32_t POWEROFF_VALUE = 0xdeadbeef;
 constexpr int DEFAULT_INTERVAL_MS = 500;
 
+// Register source. Root keeps the historical /dev/mem mapping (counters need
+// writes); unprivileged runs use the read-only vc4mon sysfs snapshot.
+enum RegSource { REGS_NONE, REGS_DEVMEM, REGS_SYSFS };
+constexpr const char* VC4MON_DIR = "/sys/kernel/vc4mon";
+
 volatile uint32_t* g_base = nullptr;
+RegSource g_reg_source = REGS_NONE;
+std::map<uint32_t, uint32_t> g_sysfs_regs;
 volatile sig_atomic_t g_running = 1;
 volatile sig_atomic_t g_winch = 0;
 
@@ -363,26 +377,89 @@ const char* throttle_color(uint32_t v)
     return K_GREEN;
 }
 
-void map_regs()
+// Load the read-only sysfs register snapshot into the cache. The file is a
+// fixed-format list of "<offset> <value>" lines, one per documented register.
+bool refresh_sysfs_regs()
 {
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd < 0)
+    FILE* f = fopen((std::string(VC4MON_DIR) + "/regs").c_str(), "r");
+    if (!f) return false;
+    std::map<uint32_t, uint32_t> regs;
+    char line[128];
+    while (fgets(line, sizeof(line), f))
     {
-        fprintf(stderr, "vc4top: open /dev/mem failed: %s (run as root)\n", strerror(errno));
-        exit(1);
+        unsigned off = 0, val = 0;
+        if (sscanf(line, "%x %x", &off, &val) == 2) regs[off] = val;
     }
-    void* p = mmap(nullptr, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, VC4_BASE);
-    close(fd);
-    if (p == MAP_FAILED)
-    {
-        fprintf(stderr, "vc4top: mmap V3D failed: %s\n", strerror(errno));
-        exit(1);
-    }
-    g_base = static_cast<volatile uint32_t*>(p);
+    fclose(f);
+    if (regs.empty()) return false;
+    g_sysfs_regs.swap(regs);
+    return true;
 }
 
-inline uint32_t rd(uint32_t off) { return g_base[off / 4]; }
-inline void wr(uint32_t off, uint32_t val) { g_base[off / 4] = val; }
+// Called once before each register snapshot so every field in a frame comes
+// from one pass over the (read-only) sysfs interface.
+void refresh_regs()
+{
+    if (g_reg_source == REGS_SYSFS) refresh_sysfs_regs();
+}
+
+void map_regs()
+{
+    // Root keeps the historical /dev/mem path: it is the only path that can
+    // sample the performance counters (which need writes to PCTRE/PCTRC).
+    if (geteuid() == 0)
+    {
+        int fd = open("/dev/mem", O_RDWR | O_SYNC);
+        if (fd >= 0)
+        {
+            void* p = mmap(nullptr, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, VC4_BASE);
+            close(fd);
+            if (p != MAP_FAILED)
+            {
+                g_base = static_cast<volatile uint32_t*>(p);
+                g_reg_source = REGS_DEVMEM;
+                return;
+            }
+            fprintf(stderr, "vc4top: mmap V3D failed: %s; trying %s\n",
+                strerror(errno), VC4MON_DIR);
+        }
+        else
+        {
+            fprintf(stderr, "vc4top: open /dev/mem failed: %s; trying %s\n",
+                strerror(errno), VC4MON_DIR);
+        }
+    }
+
+    // Unprivileged (and root fallback): read-only sysfs view. Never opens
+    // /dev/mem, never writes a register.
+    if (access((std::string(VC4MON_DIR) + "/regs").c_str(), R_OK) == 0)
+    {
+        g_reg_source = REGS_SYSFS;
+        if (refresh_sysfs_regs()) return;
+        fprintf(stderr, "vc4top: cannot read %s/regs\n", VC4MON_DIR);
+        exit(1);
+    }
+
+    fprintf(stderr, "vc4top: no access to the V3D registers: %s/regs is missing\n"
+        "  (load the read-only module: sudo modprobe vc4mon)\n"
+        "  and /dev/mem is only available to root\n", VC4MON_DIR);
+    exit(1);
+}
+
+inline uint32_t rd(uint32_t off)
+{
+    if (g_base) return g_base[off / 4];
+    auto it = g_sysfs_regs.find(off);
+    return it == g_sysfs_regs.end() ? 0 : it->second;
+}
+
+// The sysfs path is deliberately read-only: a store has nowhere to go.
+inline void wr(uint32_t off, uint32_t val)
+{
+    if (g_base) g_base[off / 4] = val;
+}
+
+bool counters_available() { return g_reg_source == REGS_DEVMEM; }
 
 bool v3d_powered() { return rd(V3D_IDENT0) != POWEROFF_VALUE; }
 
@@ -565,6 +642,7 @@ void sample_sys(SysSampler& s)
 
 void collect_qpu(QpuData& q)
 {
+    refresh_regs();
     q.ident0 = rd(V3D_IDENT0);
     q.ident1 = rd(V3D_IDENT1);
     q.ident2 = rd(V3D_IDENT2);
@@ -675,6 +753,13 @@ void wait_interval(int ms)
 
 std::vector<CounterValue> sample_counters(int page, int interval_ms)
 {
+    if (!counters_available())
+    {
+        // Keep the sampling cadence but do not touch the counters: enabling
+        // and clearing them needs writes, and vc4mon is read-only.
+        wait_interval(interval_ms);
+        return {};
+    }
     const std::vector<int> sources = page_sources(page);
     const size_t n = std::min<size_t>(sources.size(), 16);
 
@@ -918,6 +1003,8 @@ std::string make_util_line(const std::string& label, double pct, int barw)
 
 std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width)
 {
+    if (!counters_available())
+        return {colorize(K_DIM, "n/a unprivileged (counters need root)")};
     static const char* labels[7] = {"Idle", "Vertex", "Fragment", "Valid", "Stall TMU", "Stall SB", "Stall Vary"};
     double c[7];
     double total = 0;
@@ -941,6 +1028,12 @@ std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters
     bool with_title = true)
 {
     std::vector<std::string> b;
+    if (!counters_available())
+    {
+        b.push_back(colorize(K_DIM, "counters need root"));
+        b.push_back(colorize(K_DIM, "vc4mon is read-only"));
+        return b;
+    }
     if (with_title)
     {
         std::string title = page_title(page) + "  counts";
@@ -981,6 +1074,7 @@ std::string register_group(int offset)
 
 std::vector<std::string> register_lines(int width)
 {
+    refresh_regs();
     std::vector<std::string> b;
     const int total = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
     std::string last;
@@ -1361,6 +1455,7 @@ void print_counters(const std::vector<CounterValue>& c)
 
 void print_register_dump()
 {
+    refresh_regs();
     const int total = static_cast<int>(sizeof(registers) / sizeof(registers[0]));
     std::string last;
     for (int i = 0; i < total; ++i)
@@ -1477,7 +1572,13 @@ void print_snapshot(bool all_counters, bool regs)
     row("ERRSTAT:", hex32(qpu.errstat) + " " + errstat_string(qpu.errstat));
     printf("\n");
 
-    if (all_counters)
+    if (!counters_available())
+    {
+        printf("[ COUNTERS ]\n");
+        printf("  not available unprivileged: counter sampling writes PCTRE/PCTRC,\n");
+        printf("  and vc4mon is read-only. Run as root for the counter pages.\n\n");
+    }
+    else if (all_counters)
     {
         for (int page = 1; page <= 2; ++page)
         {
@@ -1508,6 +1609,7 @@ void poll_loop(int interval_ms)
     fflush(stdout);
     while (g_running)
     {
+        refresh_regs();
         auto now = std::chrono::system_clock::now();
         std::time_t t = std::chrono::system_clock::to_time_t(now);
         char ts[32];
@@ -1624,6 +1726,9 @@ void help_screen()
         "  each: label + bar + % + used/total MiB",
         "UTILIZATION",
         "  one line per metric: label + bar + %",
+        "REGISTERS",
+        "  root: /dev/mem; unprivileged: /sys/kernel/vc4mon (read-only)",
+        "  counters need root (enabling/clearing them writes registers)",
         "Any key returns."
     };
     int w = std::min(cols - 2, 72);
@@ -1700,6 +1805,9 @@ int main(int argc, char** argv)
             printf("  --frame          render one TUI frame and exit\n");
             printf("  --no-color       plain text (same as NO_COLOR=1)\n");
             printf("  --interval ms    sample interval, 50..10000 ms\n");
+            printf("\nRegisters: root uses /dev/mem; unprivileged uses the read-only\n");
+            printf("/sys/kernel/vc4mon interface (modprobe vc4mon). Counter sampling\n");
+            printf("writes PCTRE/PCTRC and still needs root.\n");
             printf("\nKeys in the TUI: q quit, a/[] page, g regs, j/k scroll,\n");
             printf("p pause, +/- interval, h help/flags.\n");
             return 0;
