@@ -1,7 +1,7 @@
 #!/bin/sh
 # Rebuild the signed apt repository and dist/ artifacts for one vc4top version.
 #
-#   GNUPGHOME=~/.gnupg-vc4top tools/build_apt_repo.sh 1.0.3
+#   GNUPGHOME=~/.gnupg-vc4top tools/build_apt_repo.sh 1.0.4
 #
 # Expects build/vc4top_<version>_arm64.deb (cmake --build build && cd build &&
 # cpack -G DEB) and build/vc4top-dkms_<version>_all.deb

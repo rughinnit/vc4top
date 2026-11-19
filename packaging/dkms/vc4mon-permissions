@@ -1,0 +1,13 @@
+#!/bin/sh
+# Give the local vc4 group write-only access to vc4mon's two counter
+# attributes.  The module itself creates them 0200 root:root; this helper is
+# run by udev when the module is loaded (and once from postinst).  It never
+# grants read access and never touches ident/regs/perf, which stay 0444.
+set -u
+
+for f in perf_enable perf_clear; do
+	path="/sys/kernel/vc4mon/$f"
+	[ -e "$path" ] || continue
+	chgrp vc4 "$path" 2>/dev/null || true
+	chmod 0620 "$path" 2>/dev/null || true
+done

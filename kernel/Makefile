@@ -1,4 +1,4 @@
-# Out-of-tree build for the read-only vc4mon module.
+# Out-of-tree build for the vc4mon counter-enabling module.
 #
 #   make -C kernel
 #   sudo make -C kernel install

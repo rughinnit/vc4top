@@ -1,7 +1,7 @@
 #!/bin/sh
 # Assemble and build the vc4top-dkms_<version>_all.deb package.
 #
-#   tools/build_dkms_deb.sh 1.0.3
+#   tools/build_dkms_deb.sh 1.0.4
 #
 # The package ships the module source under /usr/src/vc4top-<version>/ so DKMS
 # can rebuild it for every kernel.  No kernel build happens here: the compiler
@@ -20,12 +20,16 @@ rm -rf "$root/build/dkms-deb"
 install -d "$stage/DEBIAN" \
 	"$stage/usr/src/vc4top-$ver" \
 	"$stage/etc/modules-load.d" \
+	"$stage/usr/lib/udev/rules.d" \
+	"$stage/usr/lib/vc4top" \
 	"$stage/usr/share/doc/vc4top-dkms"
 
 install -m 0644 "$root/kernel/vc4mon.c"       "$stage/usr/src/vc4top-$ver/vc4mon.c"
 install -m 0644 "$src/Makefile"               "$stage/usr/src/vc4top-$ver/Makefile"
 install -m 0644 "$src/dkms.conf"              "$stage/usr/src/vc4top-$ver/dkms.conf"
 install -m 0644 "$src/vc4mon.conf"            "$stage/etc/modules-load.d/vc4mon.conf"
+install -m 0755 "$src/vc4mon-permissions"     "$stage/usr/lib/vc4top/vc4mon-permissions"
+install -m 0644 "$src/90-vc4mon.rules"        "$stage/usr/lib/udev/rules.d/90-vc4mon.rules"
 install -m 0644 "$root/kernel/README.md"      "$stage/usr/share/doc/vc4top-dkms/README.md"
 
 sed "s/@VERSION@/$ver/g" "$src/control.in" > "$stage/DEBIAN/control"

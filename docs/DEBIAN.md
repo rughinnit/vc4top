@@ -1,10 +1,10 @@
 # Debian package and apt repository
 
-`vc4top` is published as an `arm64` Debian package, the read-only kernel
-module as the `all` package `vc4top-dkms`, and both through a signed apt
-repository hosted on GitHub Pages.
+`vc4top` is published as an `arm64` Debian package, the kernel module as the
+`all` package `vc4top-dkms`, and both through a signed apt repository hosted on
+GitHub Pages.
 
-- **Package version:** `1.0.3`
+- **Package version:** `1.0.4`
 - **`vc4top` architecture:** `arm64` (Raspberry Pi OS / Debian)
 - **`vc4top-dkms` architecture:** `all` (DKMS builds `vc4mon` locally)
 - **Repository suite/component:** `stable main`
@@ -18,14 +18,14 @@ instructions in the README on bookworm, or rebuild the package there.
 ## One-line install (no repository)
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
-sudo apt install ./vc4top_1.0.3_arm64.deb ./vc4top-dkms_1.0.3_all.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
+sudo apt install ./vc4top_1.0.4_arm64.deb ./vc4top-dkms_1.0.4_all.deb
 ```
 
 The `.deb` files are also committed to the repository at
-`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.3_arm64.deb`
-and `https://github.com/rughinnit/vc4top/raw/master/dist/vc4top-dkms_1.0.3_all.deb`.
+`https://github.com/rughinnit/vc4top/raw/master/dist/vc4top_1.0.4_arm64.deb`
+and `https://github.com/rughinnit/vc4top/raw/master/dist/vc4top-dkms_1.0.4_all.deb`.
 `vc4top-dkms` depends only on `dkms`, not on the `vc4top` binary package, so
 the two `.debs` can be installed in either order.
 
@@ -77,24 +77,28 @@ sudo vc4top --regs          # full V3D register dump
 sudo vc4top --help
 ```
 
-Unprivileged use is supported through the read-only `vc4mon` module, shipped
-as the separate `vc4top-dkms` package and built for the running kernel by
-DKMS. It reads the same V3D registers from `/sys/kernel/vc4mon/` and never
-opens `/dev/mem`:
+Unprivileged use is supported through `vc4mon`, shipped as the separate
+`vc4top-dkms` package and built for the running kernel by DKMS. It reads the
+same V3D registers from `/sys/kernel/vc4mon/`, samples counters through the two
+write-only counter attributes, and never opens `/dev/mem`:
 
 ```bash
 sudo apt install vc4top vc4top-dkms
 
-dkms status                            # vc4top/1.0.3, <kernel>: installed
-ls /sys/kernel/vc4mon/                 # ident  perf  regs
-vc4top --once                          # unprivileged; equivalent register values
-vc4top                                 # TUI; counter pages marked unavailable
+dkms status                            # vc4top/1.0.4, <kernel>: installed
+ls -l /sys/kernel/vc4mon/               # ident perf regs 0444; perf_enable/perf_clear 0620 root:vc4
+vc4top --once                          # unprivileged; registers and counters
+vc4top                                 # TUI; counters sampled through vc4mon
 sudo modprobe -r vc4mon                # unload until the next boot
 ```
 
-The module does not claim, bind or unbind `3fc00000.v3d` and has no write
-path. Performance-counter sampling still needs root because it writes
-PCTRE/PCTRC. See [ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
+The module does not claim, bind or unbind `3fc00000.v3d`. Its only writable
+files are `perf_enable` (PCTRE) and `perf_clear` (PCTRC); everything else is
+read-only. The package's udev helper grants the local `vc4` group write-only
+access to those two files, so an unprivileged user in `vc4` can sample
+counters. Counter source selection stays root-only, so unprivileged runs show
+the module's fixed 16-counter map (sources 13..28 on a fresh load). See
+[ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
 
 ## Kernel module package (`vc4top-dkms`)
 
@@ -102,15 +106,17 @@ PCTRE/PCTRC. See [ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
 source and the DKMS glue:
 
 ```text
-/usr/src/vc4top-1.0.3/vc4mon.c
-/usr/src/vc4top-1.0.3/Makefile
-/usr/src/vc4top-1.0.3/dkms.conf
-/etc/modules-load.d/vc4mon.conf     # vc4mon
+/usr/src/vc4top-1.0.4/vc4mon.c
+/usr/src/vc4top-1.0.4/Makefile
+/usr/src/vc4top-1.0.4/dkms.conf
+/etc/modules-load.d/vc4mon.conf              # vc4mon
+/usr/lib/udev/rules.d/90-vc4mon.rules        # module-load permission helper
+/usr/lib/vc4top/vc4mon-permissions           # chgrp vc4 + chmod 0620
 ```
 
 - `Depends: dkms`
 - `Recommends: linux-headers-arm64 | raspberrypi-kernel-headers`
-- `dkms.conf`: `PACKAGE_NAME="vc4top"`, `PACKAGE_VERSION="1.0.3"`,
+- `dkms.conf`: `PACKAGE_NAME="vc4top"`, `PACKAGE_VERSION="1.0.4"`,
   `BUILT_MODULE_NAME[0]="vc4mon"`, `DEST_MODULE_LOCATION[0]="/extra"`,
   `AUTOINSTALL="yes"`, and a `MAKE[0]` line that builds with
   `make -C $kernel_source_dir M=$dkms_tree/$PACKAGE_NAME/$PACKAGE_VERSION/build modules`.
@@ -129,16 +135,19 @@ broken toolchain cannot leave `vc4top` half-configured.
 1. If `/lib/modules/$(uname -r)/build/Makefile` is missing it prints
    `install kernel headers` (with the exact `apt install linux-headers-<kver>`
    command), exits 0, and `vc4top` keeps working as root through `/dev/mem`.
-2. `dkms add -m vc4top -v 1.0.3` (idempotent), then
-   `dkms build -m vc4top -v 1.0.3 -k $(uname -r)`, then
-   `dkms install -m vc4top -v 1.0.3 -k $(uname -r) --force`.
+2. `dkms add -m vc4top -v 1.0.4` (idempotent), then
+   `dkms build -m vc4top -v 1.0.4 -k $(uname -r)`, then
+   `dkms install -m vc4top -v 1.0.4 -k $(uname -r) --force`.
 3. `depmod -a $(uname -r)` and `modprobe vc4mon`; the module is installed under
    `/lib/modules/$(uname -r)/updates/dkms/` (dkms 3.x on Debian ignores
    `/extra`), `depmod` makes it visible to `modprobe`, and
    `/sys/kernel/vc4mon/` appears.
+4. `/usr/lib/vc4top/vc4mon-permissions` runs once so
+   `perf_enable`/`perf_clear` become `0620 root:vc4` immediately; udev runs
+   the same helper on every later module load.
 
 `prerm` unloads the module (`modprobe -r vc4mon || true`) and runs
-`dkms remove -m vc4top -v 1.0.3 --all`; failures are ignored.
+`dkms remove -m vc4top -v 1.0.4 --all`; failures are ignored.
 
 ### Kernel upgrades
 
@@ -161,8 +170,8 @@ sudo dpkg-reconfigure vc4top-dkms      # or: sudo dkms autoinstall -k $(uname -r
 
 ```bash
 dpkg -s vc4top-dkms                     # Status: install ok installed
-dpkg -L vc4top-dkms                     # /usr/src/vc4top-1.0.3/*, modules-load.d
-dkms status                             # vc4top/1.0.3, $(uname -r), aarch64: installed
+dpkg -L vc4top-dkms                     # /usr/src/vc4top-1.0.4/*, modules-load.d, udev
+dkms status                             # vc4top/1.0.4, $(uname -r), aarch64: installed
 lsmod | grep vc4mon                     # vc4mon ...
 ls -l /lib/modules/$(uname -r)/updates/dkms/vc4mon.ko*   # dkms 3.x path
 modinfo -F filename vc4mon
@@ -170,15 +179,20 @@ cat /sys/kernel/vc4mon/regs | head      # 78 "offset value" lines
 sudo modprobe -r vc4mon && sudo modprobe vc4mon   # unload/reload cycle
 ```
 
-Then, as an unprivileged user:
+Then, as an unprivileged member of group `vc4`:
 
 ```bash
 vc4top --once
 strace -f -e trace=openat vc4top --once 2>&1 | grep -c /dev/mem   # 0
+echo 0x10000 > /sys/kernel/vc4mon/perf_enable                     # -EINVAL
+echo 2 > /sys/kernel/vc4mon/perf_clear                            # -EINVAL
 ```
 
+The only `/sys/kernel/vc4mon` writes are `perf_enable` and `perf_clear`;
+`ident`, `regs` and `perf` remain `0444`.
+
 `dkms status` is the authoritative state: `installed` for the running kernel
-means the module on disk was built from `/usr/src/vc4top-1.0.3` for exactly
+means the module on disk was built from `/usr/src/vc4top-1.0.4` for exactly
 that kernel. `added` (no build) means the headers or compiler were missing.
 
 ## Upgrading from a manual `cmake --install`
@@ -209,7 +223,7 @@ Remove the untracked copy, then install the package:
 ```bash
 sudo rm -f /usr/local/bin/vc4top
 hash -r
-sudo apt install ./vc4top_1.0.3_arm64.deb    # or: sudo apt install vc4top
+sudo apt install ./vc4top_1.0.4_arm64.deb    # or: sudo apt install vc4top
 which -a vc4top                              # must print /usr/bin/vc4top only
 dpkg -S /usr/bin/vc4top                      # must print: vc4top: /usr/bin/vc4top
 ```
@@ -235,11 +249,21 @@ sudo depmod -a
 sudo apt install vc4top vc4top-dkms
 ```
 
-DKMS then installs the same paths from `/usr/src/vc4top-1.0.3`, so
+DKMS then installs the same paths from `/usr/src/vc4top-1.0.4`, so
 `modinfo -F filename vc4mon` and `dkms status` account for what is loaded.
 
 ## Changelog
 
+- `1.0.4` (2026-11-19): unprivileged performance counters. `vc4mon` grows two
+  store-only files, `perf_enable` (PCTRE mask `0x8000ffff`) and `perf_clear`
+  (literal 1, PCTRC), with an exclusive pid lease and `-EBUSY` on overlapping
+  samplers. Nothing else became writable; `ident`/`regs`/`perf` stay `0444`.
+  A udev helper grants the `vc4` group write-only access (`0620 root:vc4`).
+  `vc4top` samples counters through sysfs when unprivileged, never opens
+  `/dev/mem`, and keeps the root path unchanged. Unload clears PCTRE. No field
+  or layout regression: `--once` fields, root 30 counter rows and 78 register
+  rows are unchanged; 0 pty scrolls at 80x24 and 140x40. See
+  [ui/REGISTER-ACCESS.md](ui/REGISTER-ACCESS.md).
 - `1.0.3` (2026-11-19): unprivileged register access through the new read-only
   `vc4mon` kernel module (`/sys/kernel/vc4mon/`). `vc4top` keeps `/dev/mem` for
   root and uses sysfs otherwise; unprivileged runs never open `/dev/mem` and
@@ -264,8 +288,8 @@ DKMS then installs the same paths from `/usr/src/vc4top-1.0.3`, so
 ## Repository layout
 
 ```text
-pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
+pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
+pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
 dists/stable/Release
 dists/stable/InRelease
 dists/stable/Release.gpg

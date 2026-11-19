@@ -1,0 +1,5 @@
+# vc4mon creates perf_enable/perf_clear as 0200 root:root.  Grant the local
+# vc4 group write-only access so an unprivileged vc4top can sample counters.
+# The module uevent is the one udev receives; the sysfs kobject itself does
+# not emit a device event.
+ACTION=="add", SUBSYSTEM=="module", KERNEL=="vc4mon", RUN+="/usr/lib/vc4top/vc4mon-permissions"

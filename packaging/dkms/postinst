@@ -49,6 +49,9 @@ depmod -a "$KVER" || true
 
 if modprobe vc4mon 2>/dev/null; then
 	echo "vc4top-dkms: vc4mon loaded; unprivileged register reads use /sys/kernel/vc4mon/"
+	# udev also does this on module load; run it here so permissions are
+	# correct immediately even if udev has not processed the module event.
+	/usr/lib/vc4top/vc4mon-permissions 2>/dev/null || true
 else
 	echo "vc4top-dkms: vc4mon was built but cannot be loaded now;" >&2
 	echo "vc4top-dkms: it will load on the next boot (modules-load.d/vc4mon.conf)." >&2

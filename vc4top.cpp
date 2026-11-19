@@ -8,10 +8,10 @@
  * clocks/voltages/thermal/throttle, CMA/DRM/display state and a live TUI.
  *
  * Register access: as root, vc4top maps /dev/mem exactly as before.  When run
- * unprivileged it reads the same V3D registers through the read-only
- * /sys/kernel/vc4mon/ interface (the out-of-tree vc4mon module), with no
- * /dev/mem and no hardware writes.  Counter sampling enables/clears the V3D
- * performance counters, so it remains root-only.
+ * unprivileged it reads the same V3D registers through /sys/kernel/vc4mon/
+ * (the out-of-tree vc4mon module) and samples the performance counters with
+ * the two narrow write attributes perf_enable and perf_clear.  It never opens
+ * /dev/mem unprivileged and never writes any other register.
  *
  * The V3D block must be powered: the vc4cl-v3d-power service (or writing "on"
  * to 3fc00000.v3d/power/control) keeps it alive.
@@ -54,14 +54,20 @@ constexpr size_t MAP_SIZE = 0x1000;
 constexpr uint32_t POWEROFF_VALUE = 0xdeadbeef;
 constexpr int DEFAULT_INTERVAL_MS = 500;
 
-// Register source. Root keeps the historical /dev/mem mapping (counters need
-// writes); unprivileged runs use the read-only vc4mon sysfs snapshot.
+// Register source. Root keeps the historical /dev/mem mapping; unprivileged
+// runs use the vc4mon sysfs snapshot plus its two counter write attributes.
 enum RegSource { REGS_NONE, REGS_DEVMEM, REGS_SYSFS };
 constexpr const char* VC4MON_DIR = "/sys/kernel/vc4mon";
+
+// PCTRE bit 31 is marked reserved but is required on this V3D.  Bits 0..15
+// enable the 16 counter latches; no other bit is accepted by vc4mon.
+constexpr uint32_t PCTRE_MASK = 0x80000000u | 0xffffu;
+constexpr unsigned COUNTERS = 16;
 
 volatile uint32_t* g_base = nullptr;
 RegSource g_reg_source = REGS_NONE;
 std::map<uint32_t, uint32_t> g_sysfs_regs;
+std::string g_counter_error;
 volatile sig_atomic_t g_running = 1;
 volatile sig_atomic_t g_winch = 0;
 
@@ -377,8 +383,8 @@ const char* throttle_color(uint32_t v)
     return K_GREEN;
 }
 
-// Load the read-only sysfs register snapshot into the cache. The file is a
-// fixed-format list of "<offset> <value>" lines, one per documented register.
+// Load the sysfs register snapshot into the cache. The file is a fixed-format
+// list of "<offset> <value>" lines, one per documented register.
 bool refresh_sysfs_regs()
 {
     FILE* f = fopen((std::string(VC4MON_DIR) + "/regs").c_str(), "r");
@@ -397,7 +403,7 @@ bool refresh_sysfs_regs()
 }
 
 // Called once before each register snapshot so every field in a frame comes
-// from one pass over the (read-only) sysfs interface.
+// from one pass over the sysfs interface.
 void refresh_regs()
 {
     if (g_reg_source == REGS_SYSFS) refresh_sysfs_regs();
@@ -405,8 +411,8 @@ void refresh_regs()
 
 void map_regs()
 {
-    // Root keeps the historical /dev/mem path: it is the only path that can
-    // sample the performance counters (which need writes to PCTRE/PCTRC).
+    // Root keeps the historical /dev/mem mapping.  Unprivileged runs, and a
+    // root fallback when /dev/mem is unavailable, use vc4mon.
     if (geteuid() == 0)
     {
         int fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -430,8 +436,8 @@ void map_regs()
         }
     }
 
-    // Unprivileged (and root fallback): read-only sysfs view. Never opens
-    // /dev/mem, never writes a register.
+    // Unprivileged (and root fallback): sysfs view.  Never opens /dev/mem;
+    // the only writes go to vc4mon's perf_enable/perf_clear attributes.
     if (access((std::string(VC4MON_DIR) + "/regs").c_str(), R_OK) == 0)
     {
         g_reg_source = REGS_SYSFS;
@@ -441,7 +447,7 @@ void map_regs()
     }
 
     fprintf(stderr, "vc4top: no access to the V3D registers: %s/regs is missing\n"
-        "  (load the read-only module: sudo modprobe vc4mon)\n"
+        "  (load the vc4mon module: sudo modprobe vc4mon, or install vc4top-dkms)\n"
         "  and /dev/mem is only available to root\n", VC4MON_DIR);
     exit(1);
 }
@@ -453,13 +459,21 @@ inline uint32_t rd(uint32_t off)
     return it == g_sysfs_regs.end() ? 0 : it->second;
 }
 
-// The sysfs path is deliberately read-only: a store has nowhere to go.
+// The raw sysfs path has no general-purpose store: only vc4mon's two counter
+// attributes are writable, through sysfs_counter_write().
 inline void wr(uint32_t off, uint32_t val)
 {
     if (g_base) g_base[off / 4] = val;
 }
 
-bool counters_available() { return g_reg_source == REGS_DEVMEM; }
+bool counters_available()
+{
+    if (g_reg_source == REGS_DEVMEM) return true;
+    if (g_reg_source != REGS_SYSFS) return false;
+    const std::string enable = std::string(VC4MON_DIR) + "/perf_enable";
+    const std::string clear = std::string(VC4MON_DIR) + "/perf_clear";
+    return access(enable.c_str(), W_OK) == 0 && access(clear.c_str(), W_OK) == 0;
+}
 
 bool v3d_powered() { return rd(V3D_IDENT0) != POWEROFF_VALUE; }
 
@@ -751,15 +765,117 @@ void wait_interval(int ms)
     }
 }
 
+// vc4mon sysfs writes are the only writes the unprivileged path performs.
+// perf_enable takes a PCTRE value, perf_clear takes the literal 1.
+bool sysfs_counter_write(const char* attr, uint32_t value)
+{
+    char text[32];
+    const int len = snprintf(text, sizeof(text), "%u\n", value);
+    const std::string path = std::string(VC4MON_DIR) + "/" + attr;
+    const int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
+    if (fd < 0)
+    {
+        g_counter_error = path + ": " + strerror(errno);
+        return false;
+    }
+    const ssize_t n = write(fd, text, static_cast<size_t>(len));
+    const int saved = errno;
+    close(fd);
+    if (n != len)
+    {
+        g_counter_error = path + ": " + strerror(saved);
+        return false;
+    }
+    g_counter_error.clear();
+    return true;
+}
+
+struct SysfsPerf {
+    uint32_t pctr[COUNTERS] = {};
+    uint32_t pctrs[COUNTERS] = {};
+};
+
+bool read_sysfs_perf(SysfsPerf& p)
+{
+    FILE* f = fopen((std::string(VC4MON_DIR) + "/perf").c_str(), "r");
+    if (!f)
+    {
+        g_counter_error = std::string(VC4MON_DIR) + "/perf: " + strerror(errno);
+        return false;
+    }
+    char line[128];
+    bool any = false;
+    while (fgets(line, sizeof(line), f))
+    {
+        unsigned idx = 0, val = 0;
+        if (sscanf(line, "PCTRS%u 0x%x", &idx, &val) == 2)
+        {
+            if (idx < COUNTERS) { p.pctrs[idx] = val; any = true; }
+        }
+        else if (sscanf(line, "PCTR%u 0x%x", &idx, &val) == 2)
+        {
+            if (idx < COUNTERS) { p.pctr[idx] = val; any = true; }
+        }
+    }
+    fclose(f);
+    return any;
+}
+
+// Unprivileged sampling.  Source selection is deliberately not exposed by
+// vc4mon; the 16 counters keep the mapping configured in the module (the
+// documented 13..28 primary map on a fresh load, or whatever a previous root
+// owner selected).  PCTRS is read back so every row is labelled with the
+// source the hardware is actually counting.
+std::vector<CounterValue> sample_counters_sysfs(int interval_ms)
+{
+    SysfsPerf perf;
+
+    // Release any stale lease from a previous frame, then clear and read the
+    // current source map.  Both stores are serialised by vc4mon.
+    if (!sysfs_counter_write("perf_enable", 0)) return {};
+    if (!sysfs_counter_write("perf_clear", 1)) return {};
+    if (!read_sysfs_perf(perf)) return {};
+
+    // Enable all 16 counters.  Bit 31 is the hardware's required enable bit.
+    const uint32_t mask = PCTRE_MASK;
+    if (!sysfs_counter_write("perf_enable", mask)) return {};
+
+    wait_interval(interval_ms);
+
+    SysfsPerf post;
+    const bool sampled = read_sysfs_perf(post);
+    // Always give the counters back, even when the read failed.
+    sysfs_counter_write("perf_enable", 0);
+    sysfs_counter_write("perf_clear", 1);
+    if (!sampled) return {};
+
+    std::vector<CounterValue> out;
+    out.reserve(COUNTERS);
+    for (unsigned i = 0; i < COUNTERS; ++i)
+    {
+        CounterValue v;
+        const uint32_t select = post.pctrs[i];
+        v.source = static_cast<int>(select & 0x1Fu);
+        v.value = post.pctr[i];
+        v.powered_off = (v.value == POWEROFF_VALUE);
+        v.rate = v.powered_off ? 0.0 : v.value * 1000.0 / std::max(1, interval_ms);
+        out.push_back(v);
+    }
+    return out;
+}
+
 std::vector<CounterValue> sample_counters(int page, int interval_ms)
 {
     if (!counters_available())
     {
-        // Keep the sampling cadence but do not touch the counters: enabling
-        // and clearing them needs writes, and vc4mon is read-only.
+        // Keep the sampling cadence but do not touch the counters: the
+        // module is missing or its counter attributes are not writable.
         wait_interval(interval_ms);
         return {};
     }
+    if (g_reg_source == REGS_SYSFS)
+        return sample_counters_sysfs(interval_ms);
+
     const std::vector<int> sources = page_sources(page);
     const size_t n = std::min<size_t>(sources.size(), 16);
 
@@ -1004,7 +1120,7 @@ std::string make_util_line(const std::string& label, double pct, int barw)
 std::vector<std::string> utilization_lines(const std::vector<CounterValue>& counters, int width)
 {
     if (!counters_available())
-        return {colorize(K_DIM, "n/a unprivileged (counters need root)")};
+        return {colorize(K_DIM, "n/a (vc4mon counter attributes unavailable)")};
     static const char* labels[7] = {"Idle", "Vertex", "Fragment", "Valid", "Stall TMU", "Stall SB", "Stall Vary"};
     double c[7];
     double total = 0;
@@ -1019,6 +1135,8 @@ std::vector<std::string> utilization_lines(const std::vector<CounterValue>& coun
 
 std::string page_title(int page)
 {
+    if (g_reg_source == REGS_SYSFS)
+        return "hardware counter map (fixed; 16 counters)";
     if (page == 0) return "page 1/3  QPU/GPU primary (13-28)";
     if (page == 1) return "page 2/3  FEP/TLB/PTB/PSE (0-15)";
     return "page 3/3  QPU/TMU/VPM/L2C (16-29)";
@@ -1030,8 +1148,9 @@ std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters
     std::vector<std::string> b;
     if (!counters_available())
     {
-        b.push_back(colorize(K_DIM, "counters need root"));
-        b.push_back(colorize(K_DIM, "vc4mon is read-only"));
+        b.push_back(colorize(K_DIM, "counters unavailable"));
+        b.push_back(colorize(K_DIM, g_counter_error.empty()
+            ? "install vc4top-dkms >= 1.0.4" : g_counter_error));
         return b;
     }
     if (with_title)
@@ -1056,7 +1175,7 @@ std::vector<std::string> counter_lines(const std::vector<CounterValue>& counters
             snprintf(buf, sizeof(buf), "%-3d %-*s %10u %12.1f", v.source, name_w, name.c_str(), v.value, v.rate);
         b.push_back(colorize(v.value == 0 || v.powered_off ? K_DIM : K_RESET, buf));
     }
-    if (page != 0)
+    if (page != 0 && g_reg_source != REGS_SYSFS)
         b.push_back(colorize(K_DIM, "page changed; zero counts are expected for the first sample"));
     return b;
 }
@@ -1575,8 +1694,17 @@ void print_snapshot(bool all_counters, bool regs)
     if (!counters_available())
     {
         printf("[ COUNTERS ]\n");
-        printf("  not available unprivileged: counter sampling writes PCTRE/PCTRC,\n");
-        printf("  and vc4mon is read-only. Run as root for the counter pages.\n\n");
+        printf("  unavailable: vc4mon perf_enable/perf_clear are not writable.\n");
+        if (!g_counter_error.empty()) printf("  %s\n", g_counter_error.c_str());
+        printf("  Install vc4top-dkms >= 1.0.4 and load vc4mon.\n\n");
+    }
+    else if (all_counters && g_reg_source == REGS_SYSFS)
+    {
+        auto c = sample_counters(0, DEFAULT_INTERVAL_MS);
+        printf("[ COUNTERS (vc4mon hardware map) ]\n");
+        printf("  Source selection needs root; these are the 16 mapped counters.\n");
+        print_counters(c);
+        printf("\n");
     }
     else if (all_counters)
     {
@@ -1592,6 +1720,8 @@ void print_snapshot(bool all_counters, bool regs)
     {
         auto c = sample_counters(0, DEFAULT_INTERVAL_MS);
         printf("[ PRIMARY COUNTERS ]\n");
+        if (g_reg_source == REGS_SYSFS)
+            printf("  Sources fixed by vc4mon; sampled via sysfs perf_enable/perf_clear.\n");
         print_counters(c);
         printf("\n");
     }
@@ -1727,8 +1857,8 @@ void help_screen()
         "UTILIZATION",
         "  one line per metric: label + bar + %",
         "REGISTERS",
-        "  root: /dev/mem; unprivileged: /sys/kernel/vc4mon (read-only)",
-        "  counters need root (enabling/clearing them writes registers)",
+        "  root: /dev/mem; unprivileged: /sys/kernel/vc4mon",
+        "  counters: perf_enable/perf_clear only (PCTRE/PCTRC)",
         "Any key returns."
     };
     int w = std::min(cols - 2, 72);
@@ -1805,9 +1935,9 @@ int main(int argc, char** argv)
             printf("  --frame          render one TUI frame and exit\n");
             printf("  --no-color       plain text (same as NO_COLOR=1)\n");
             printf("  --interval ms    sample interval, 50..10000 ms\n");
-            printf("\nRegisters: root uses /dev/mem; unprivileged uses the read-only\n");
-            printf("/sys/kernel/vc4mon interface (modprobe vc4mon). Counter sampling\n");
-            printf("writes PCTRE/PCTRC and still needs root.\n");
+            printf("\nRegisters: root uses /dev/mem; unprivileged uses\n");
+            printf("/sys/kernel/vc4mon (modprobe vc4mon). Counter sampling uses\n");
+            printf("only perf_enable and perf_clear (PCTRE/PCTRC).\n");
             printf("\nKeys in the TUI: q quit, a/[] page, g regs, j/k scroll,\n");
             printf("p pause, +/- interval, h help/flags.\n");
             return 0;

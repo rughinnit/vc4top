@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(vc4top VERSION 1.0.3 LANGUAGES CXX)
+project(vc4top VERSION 1.0.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,8 +31,9 @@ voltages, temperature, throttling and ARM/GPU-CMA memory utilization; QPU
 scheduler, queues and VPM state; all 30 V3D performance-counter sources; and the
 full V3D register map. The TUI adapts to the terminal width and has headless
 snapshot, counter-dump, register-dump and CSV polling modes. Registers are read
-through /dev/mem as root or through the read-only vc4mon sysfs module when
-unprivileged; performance-counter sampling still needs root.")
+through /dev/mem as root or through the vc4mon sysfs module when unprivileged;
+performance counters are sampled unprivileged through vc4mon's narrow
+perf_enable/perf_clear write attributes.")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/rughinnit/vc4top")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
 
@@ -46,6 +47,6 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "raspi-config")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 
-# vc4top maps /dev/mem and must be started with sudo/root. It is deliberately
-# not installed setuid: root access is explicit, not implicit.
+# Root keeps the historical /dev/mem mapping. Unprivileged runs use vc4mon
+# and are deliberately not installed setuid: privilege is explicit.
 include(CPack)

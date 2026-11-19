@@ -1,4 +1,4 @@
-# DKMS build for the read-only vc4mon module.
+# DKMS build for the vc4mon counter-enabling module.
 #
 # DKMS copies this directory to /var/lib/dkms/vc4top/<version>/build and runs
 # the MAKE[0] command from dkms.conf.  The target kernel is always the running

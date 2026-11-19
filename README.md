@@ -2,10 +2,10 @@
 
 Realtime terminal monitor for the Broadcom **VideoCore IV** GPU/QPU (Raspberry Pi 1, 2, 3, Zero, Zero 2 W and CM1/CM3). It is a btop-style TUI with the whole V3D block exposed, not just the seven 3D-pipeline percentages of the original vc4top.
 
-Register reads work without root through `vc4mon`, a small **read-only**
-out-of-tree kernel module (source in [`kernel/`](kernel/)). Root is only needed
-for performance-counter sampling, which must enable and clear the counters in
-hardware.
+Register reads and counter sampling work without root through `vc4mon`, a
+small out-of-tree kernel module (source in [`kernel/`](kernel/)). Root is only
+needed to remap the counter sources across all 30 pages; the unprivileged path
+uses the module's fixed 16-counter map.
 
 
 ![status](https://img.shields.io/badge/GPU-VideoCore%20IV-blue) ![license](https://img.shields.io/badge/license-GPL--3.0-green)
@@ -16,10 +16,14 @@ hardware.
 - **Memory utilization**: the raw firmware split and CMA free stay visible, plus two live bars with percentage and used/total MiB — `ARM` (`MemTotal - MemAvailable` from `/proc/meminfo`) and `GPU/CMA` (`CmaTotal - CmaFree`, the pool carved out for the GPU).
 - **QPU / scheduler / VPM**: IDENT0/1/2, revision, slices, QPUs/slice, TMUs/slice, total QPUs/TMUs, semaphores, VPM size, HDR support, SRQCS queue/requests/completed/qerr, VPMBASE reserved bytes, VPACNTL, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL, INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL and decoded ERRSTAT.
 - **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall metrics from counter sources 13-19, one line each: label + bar + a single percentage.
-- **Counters**: all **30** V3D counter sources, on three pages (the hardware has 16 counters, so pages are used):
+- **Counters**: root samples all **30** V3D counter sources, on three pages
+  (the hardware has 16 counters, so pages are used):
   - page 1: QPU/GPU primary, sources 13-28
   - page 2: FEP/TLB/PTB/PSE, sources 0-15
   - page 3: QPU/TMU/VPM/L2C, sources 16-29
+
+  Unprivileged runs sample the module's fixed 16-counter map (13-28 on a fresh
+  load) through `perf_enable`/`perf_clear`; source remapping is root-only.
 - **Registers**: the complete documented V3D register map (IDENT, control-list, binner, scheduler, VPM, performance counters, debug/error).
 
 ## Build
@@ -39,25 +43,31 @@ sudo cmake --install build
 vc4top
 ```
 
-### Read-only register module (vc4mon)
+### Register and counter module (vc4mon)
 
 `vc4top` reads the V3D register block through `/dev/mem` when run as root. To
-read the same registers unprivileged, install the packaged DKMS module. It
-does **not** bind, unbind or claim `3fc00000.v3d`; it maps the existing MMIO
-resource a second time, read-only, and exposes only `0444` sysfs attributes:
+read the same registers and sample counters unprivileged, install the packaged
+DKMS module. It does **not** bind, unbind or claim `3fc00000.v3d`; it maps the
+existing MMIO resource a second time and exposes three `0444` read files plus
+two `0200` write-only counter files:
 
 ```bash
 sudo apt install vc4top vc4top-dkms          # from the vc4top apt repository
-dkms status                                  # vc4top/1.0.3, <kernel>: installed
-ls /sys/kernel/vc4mon/                       # ident  perf  regs
+dkms status                                  # vc4top/1.0.4, <kernel>: installed
+ls -l /sys/kernel/vc4mon/                    # ident perf regs 0444; perf_enable/perf_clear
 ```
 
-`vc4top-dkms` installs the source in `/usr/src/vc4top-1.0.3` and builds it for
+`vc4top-dkms` installs the source in `/usr/src/vc4top-1.0.4` and builds it for
 the running kernel in `postinst`; `/etc/modules-load.d/vc4mon.conf` loads it at
 boot. Kernel upgrades rebuild it automatically (`AUTOINSTALL="yes"`) as long as
 the matching `linux-headers-*` package is installed. If the headers are
 missing the install still succeeds: `vc4top` keeps working as root and the
 package prints the `apt install linux-headers-$(uname -r)` command to run.
+
+The package's udev helper grants the local `vc4` group write-only access to
+`perf_enable`/`perf_clear` (`0620 root:vc4`); add users who should sample
+counters to that group. Unprivileged source remapping is deliberately not
+exposed, so those runs show the module's fixed 13-28 map.
 
 Building from a git checkout instead (no DKMS):
 
@@ -67,6 +77,8 @@ make -C kernel
 sudo make -C kernel install                   # /lib/modules/$(uname -r)/extra
 sudo modprobe vc4mon
 echo vc4mon | sudo tee /etc/modules-load.d/vc4mon.conf
+sudo chgrp vc4 /sys/kernel/vc4mon/perf_enable /sys/kernel/vc4mon/perf_clear
+sudo chmod 0620 /sys/kernel/vc4mon/perf_enable /sys/kernel/vc4mon/perf_clear
 ```
 
 Inspect or unload:
@@ -78,10 +90,11 @@ cat /sys/kernel/vc4mon/perf       # PCTR0..15 / PCTRS0..15, observation only
 sudo modprobe -r vc4mon
 ```
 
-There is no write path: no store handler, no reset, no clock change, no
-unbind. Counter *sampling* still requires root because it writes PCTRE/PCTRC,
-so unprivileged `vc4top` shows the QPU/register view and reports the counter
-pages as unavailable. See [`kernel/README.md`](kernel/README.md) and
+The writable surface is only `perf_enable` (PCTRE, mask `0x8000ffff`) and
+`perf_clear` (literal 1, PCTRC). No other register, reset, clock, power,
+queue, VPM or L2 control is writable. PCTRE/PCTRC only enable/clear counter
+latches: they cannot DMA, write memory, affect rendering or change power.
+See [`kernel/README.md`](kernel/README.md) and
 [docs/ui/REGISTER-ACCESS.md](docs/ui/REGISTER-ACCESS.md).
 
 ### Debian package (arm64)
@@ -90,9 +103,9 @@ A prebuilt package, the `vc4top-dkms` module package and a signed apt
 repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.3_all.deb
-sudo apt install ./vc4top_1.0.3_arm64.deb ./vc4top-dkms_1.0.3_all.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.4_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top-dkms_1.0.4_all.deb
+sudo apt install ./vc4top_1.0.4_arm64.deb ./vc4top-dkms_1.0.4_all.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -102,8 +115,8 @@ run instructions and how to remove an older manual `cmake --install` copy.
 
 `vc4top` with no arguments launches the realtime TUI (like btop). As root it
 maps `/dev/mem`; as a normal user it reads the same registers through
-`/sys/kernel/vc4mon/` when the `vc4mon` module is loaded, and never opens
-`/dev/mem`. Counter sampling needs root.
+`/sys/kernel/vc4mon/` and samples counters through `perf_enable`/`perf_clear`
+when the `vc4mon` module is loaded, and never opens `/dev/mem`.
 
 ```bash
 sudo vc4top
@@ -137,7 +150,7 @@ Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is ke
 
 ```bash
 sudo vc4top --once            # wide snapshot (system + QPU + primary counters)
-sudo vc4top --all-counters    # all 30 counter sources, two passes
+sudo vc4top --all-counters    # root: all 30 sources; unprivileged: fixed 16
 sudo vc4top --regs            # full register dump
 sudo vc4top --poll 50         # CSV of SRQCS/SRQPC/SRQUA/VPMBASE/ERRSTAT at 50 ms
 sudo vc4top --frame           # render one TUI frame and exit
@@ -145,15 +158,16 @@ sudo vc4top --frame           # render one TUI frame and exit
 
 If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI.
 
-Unprivileged runs print the same QPU/register fields as the root path (the
-`vc4mon` module returns one snapshot per sample), but the counter sections are
-marked unavailable because enabling counters is a hardware write.
+Unprivileged runs print the same QPU/register fields as the root path and now
+sample the counters through vc4mon's `perf_enable`/`perf_clear`, with no
+`/dev/mem`. Source remapping remains root-only, so the unprivileged counter
+table shows the module's fixed 16-counter map.
 
 ## Requirements
 
 - Raspberry Pi with VideoCore IV: Pi 1, 2, 3, Zero, Zero 2 W, CM1/CM3. Not Pi 4/5 (VideoCore VI/VII).
-- Root for `/dev/mem` and for performance-counter sampling; the read-only
-  `vc4mon` module for unprivileged register reads.
+- Root for `/dev/mem` and for remapping all 30 counter sources; the `vc4mon`
+  module and membership of group `vc4` for unprivileged registers and counters.
 - A powered V3D block. The `vc4cl-v3d-power.service` keeps `3fc00000.v3d/power/control=on`. Otherwise write `on` there yourself.
 - The V3D block must not be suspended (`0xdeadbeef` reads).
 
@@ -166,6 +180,25 @@ marked unavailable because enabling counters is a hardware write.
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 
 ## Changelog
+
+### 1.0.4 (2026-11-19)
+
+- Unprivileged performance counters: `vc4mon` now exposes exactly two
+  store-only files, `perf_enable` (PCTRE mask `0x8000ffff`, invalid bits
+  rejected with `-EINVAL`) and `perf_clear` (literal 1, PCTRC, bounded poll).
+  `ident`/`regs`/`perf` stay `0444`; no queue, VPM, L2, reset, clock or power
+  register became writable. A pid-keyed exclusive lease returns `-EBUSY` to a
+  second sampler and expires after 30 s; unload clears PCTRE.
+- The packaged udev helper grants group `vc4` write-only access
+  (`0620 root:vc4`). Unprivileged `vc4top` enables, samples, displays and
+  clears the counters through sysfs, still never opens `/dev/mem`; the root
+  `/dev/mem` path is unchanged.
+- Loading the module initialises the PCTRS primary map (13..28) only when all
+  PCTRS registers read the reset value zero, so a fresh boot has useful
+  unprivileged counters without exposing a selector write.
+- No read-path or layout regression: root `--all-counters` still has 30 rows,
+  `--regs` 78 rows, 0 pty scrolls at 80x24 and 140x40.
+- `vc4top-dkms` and `vc4top` are version 1.0.4.
 
 ### 1.0.3 (2026-11-19)
 
