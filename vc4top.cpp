@@ -51,6 +51,10 @@ volatile uint32_t* g_base = nullptr;
 volatile sig_atomic_t g_running = 1;
 volatile sig_atomic_t g_winch = 0;
 
+// Set by the live TUI: makes counter sampling interruptible by keys/signals.
+bool g_interactive = false;
+int g_pending_key = -1;
+
 bool g_color = true;
 
 const char* K_RESET = "\033[0m";
@@ -304,37 +308,85 @@ inline void wr(uint32_t off, uint32_t val) { g_base[off / 4] = val; }
 
 bool v3d_powered() { return rd(V3D_IDENT0) != POWEROFF_VALUE; }
 
-void collect_sys(SysData& d)
+uint64_t mono_ms()
 {
-    d.time = cmd("date '+%Y-%m-%d %H:%M:%S %Z'");
-    d.temp = after_eq(cmd("vcgencmd measure_temp"));
-    d.throttle = after_eq(cmd("vcgencmd get_throttled"));
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000ull +
+        static_cast<uint64_t>(ts.tv_nsec) / 1000000ull;
+}
+
+std::string now_string()
+{
+    char buf[64];
+    std::time_t t = std::time(nullptr);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", &tmv);
+    return buf;
+}
+
+std::string meminfo_kb(const char* key)
+{
+    const std::string all = read_file("/proc/meminfo");
+    const std::string k = std::string(key) + ":";
+    const size_t p = all.find(k);
+    if (p == std::string::npos) return "";
+    const char* s = all.c_str() + p + k.size();
+    while (*s == ' ' || *s == '\t') ++s;
+    char* end = nullptr;
+    const unsigned long v = strtoul(s, &end, 10);
+    if (end == s) return "";
+    return std::to_string(v);
+}
+
+std::string vcgen(const char* what)
+{
+    return after_eq(cmd(std::string("vcgencmd ") + what));
+}
+
+void decode_throttle(SysData& d)
+{
+    const uint32_t v = static_cast<uint32_t>(strtoul(d.throttle.c_str(), nullptr, 16));
+    const struct { int bit; const char* name; } bits[] = {
+        {0, "under-voltage"}, {1, "freq-cap"}, {2, "throttled"}, {3, "temp-limit"},
+        {16, "uv-past"}, {17, "freq-cap-past"}, {18, "thr-past"}, {19, "temp-past"}};
+    std::string s;
+    for (const auto& b : bits)
+        if (v & (1u << b.bit)) { if (!s.empty()) s += ","; s += b.name; }
+    d.throttle_decoded = s.empty() ? "none" : s;
+}
+
+// Values that only change slowly (mailbox clocks/voltages, firmware memory
+// split). Each slot costs one vcgencmd fork, so the live view refreshes them
+// round-robin instead of re-reading all of them on every frame.
+constexpr size_t SYS_SLOT_COUNT = 11;
+
+void refresh_sys_slot(SysData& d, size_t slot)
+{
+    switch (slot)
     {
-        uint32_t v = static_cast<uint32_t>(strtoul(d.throttle.c_str(), nullptr, 16));
-        const struct { int bit; const char* name; } bits[] = {
-            {0, "under-voltage"}, {1, "freq-cap"}, {2, "throttled"}, {3, "temp-limit"},
-            {16, "uv-past"}, {17, "freq-cap-past"}, {18, "thr-past"}, {19, "temp-past"}};
-        std::string s;
-        for (const auto& b : bits)
-            if (v & (1u << b.bit)) { if (!s.empty()) s += ","; s += b.name; }
-        d.throttle_decoded = s.empty() ? "none" : s;
+    case 0: d.volts_core = vcgen("measure_volts core"); break;
+    case 1: d.volts_sdram = vcgen("measure_volts sdram_c"); break;
+    case 2: d.arm_clk = vcgen("measure_clock arm"); break;
+    case 3: d.core_clk = vcgen("measure_clock core"); break;
+    case 4: d.v3d_clk = vcgen("measure_clock v3d"); break;
+    case 5: d.h264_clk = vcgen("measure_clock h264"); break;
+    case 6: d.isp_clk = vcgen("measure_clock isp"); break;
+    case 7: d.pixel_clk = vcgen("measure_clock pixel"); break;
+    case 8: d.hdmi_clk = vcgen("measure_clock hdmi"); break;
+    case 9: d.vec_clk = vcgen("measure_clock vec"); break;
+    default: d.emmc_clk = vcgen("measure_clock emmc"); break;
     }
-    d.volts_core = after_eq(cmd("vcgencmd measure_volts core"));
-    d.volts_sdram = after_eq(cmd("vcgencmd measure_volts sdram_c"));
-    d.arm_clk = after_eq(cmd("vcgencmd measure_clock arm"));
-    d.core_clk = after_eq(cmd("vcgencmd measure_clock core"));
-    d.v3d_clk = after_eq(cmd("vcgencmd measure_clock v3d"));
-    d.h264_clk = after_eq(cmd("vcgencmd measure_clock h264"));
-    d.isp_clk = after_eq(cmd("vcgencmd measure_clock isp"));
-    d.pixel_clk = after_eq(cmd("vcgencmd measure_clock pixel"));
-    d.hdmi_clk = after_eq(cmd("vcgencmd measure_clock hdmi"));
-    d.vec_clk = after_eq(cmd("vcgencmd measure_clock vec"));
-    d.emmc_clk = after_eq(cmd("vcgencmd measure_clock emmc"));
-    d.gpu_mem = after_eq(cmd("vcgencmd get_mem gpu"));
-    d.arm_mem = after_eq(cmd("vcgencmd get_mem arm"));
+}
+
+// Fork-free part of the system snapshot: /proc and sysfs reads only.
+void collect_sys_local(SysData& d)
+{
+    d.time = now_string();
     {
-        std::string total = cmd("awk '/^CmaTotal:/{print $2}' /proc/meminfo");
-        std::string freeb = cmd("awk '/^CmaFree:/{print $2}' /proc/meminfo");
+        std::string total = meminfo_kb("CmaTotal");
+        std::string freeb = meminfo_kb("CmaFree");
         if (total.empty() || freeb.empty())
             d.cma = "n/a";
         else
@@ -357,6 +409,60 @@ void collect_sys(SysData& d)
         for (char c : raw) if (c == '\n') ++lines;
         if (!raw.empty() && raw.back() != '\n') ++lines;
         d.clients = std::to_string(std::max(0, lines - 1)) + " client(s)";
+    }
+}
+
+// Complete snapshot for --once/--frame and the first live frame.
+void collect_sys(SysData& d)
+{
+    collect_sys_local(d);
+    d.temp = vcgen("measure_temp");
+    d.throttle = vcgen("get_throttled");
+    decode_throttle(d);
+    for (size_t i = 0; i < SYS_SLOT_COUNT; ++i) refresh_sys_slot(d, i);
+    d.gpu_mem = vcgen("get_mem gpu");
+    d.arm_mem = vcgen("get_mem arm");
+}
+
+struct SysSampler {
+    SysData d;
+    size_t slot = 0;
+    uint64_t last_scalar = 0;
+    uint64_t last_mem = 0;
+    bool primed = false;
+};
+
+// Live sampler: cheap data every frame, thermal/throttle every 500 ms, and one
+// clock/voltage slot per frame. That keeps a frame far below the sample
+// interval while still refreshing every field within a few seconds.
+void sample_sys(SysSampler& s)
+{
+    SysData& d = s.d;
+    const uint64_t now = mono_ms();
+    collect_sys_local(d);
+    if (!s.primed || now - s.last_scalar >= 500)
+    {
+        d.temp = vcgen("measure_temp");
+        d.throttle = vcgen("get_throttled");
+        decode_throttle(d);
+        s.last_scalar = now;
+    }
+    if (!s.primed)
+    {
+        for (size_t i = 0; i < SYS_SLOT_COUNT; ++i) refresh_sys_slot(d, i);
+        d.gpu_mem = vcgen("get_mem gpu");
+        d.arm_mem = vcgen("get_mem arm");
+        s.primed = true;
+        s.last_mem = now;
+        return;
+    }
+    refresh_sys_slot(d, s.slot);
+    s.slot = (s.slot + 1) % SYS_SLOT_COUNT;
+    if (now - s.last_mem >= 15000)
+    {
+        d.gpu_mem = vcgen("get_mem gpu");
+        d.arm_mem = vcgen("get_mem arm");
+        s.last_mem = now;
     }
 }
 
@@ -437,6 +543,39 @@ std::vector<int> page_sources(int page)
     return {13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
 }
 
+// Wait for the counter measurement window. In the live TUI the wait is
+// interruptible: keys are read as they arrive (q quits immediately) and any
+// other key is queued for the next frame, so the view does not add a sleep on
+// top of the sampling interval.
+void wait_interval(int ms)
+{
+    if (!g_interactive)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+        return;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    while (g_running)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) return;
+        const long remain = static_cast<long>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+        fd_set rf;
+        FD_ZERO(&rf);
+        FD_SET(STDIN_FILENO, &rf);
+        struct timeval tv;
+        tv.tv_sec = remain / 1000;
+        tv.tv_usec = (remain % 1000) * 1000;
+        const int r = select(STDIN_FILENO + 1, &rf, nullptr, nullptr, &tv);
+        if (r <= 0) continue;
+        unsigned char c = 0;
+        if (read(STDIN_FILENO, &c, 1) != 1) continue;
+        if (c == 'q' || c == 3) { g_running = 0; return; }
+        if (g_pending_key < 0) g_pending_key = c;
+    }
+}
+
 std::vector<CounterValue> sample_counters(int page, int interval_ms)
 {
     const std::vector<int> sources = page_sources(page);
@@ -455,7 +594,7 @@ std::vector<CounterValue> sample_counters(int page, int interval_ms)
     for (size_t i = 0; i < n; ++i)
         wr(V3D_PCTRE, rd(V3D_PCTRE) | (1u << i));
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+    wait_interval(interval_ms);
 
     std::vector<CounterValue> out;
     out.reserve(n);
@@ -838,10 +977,34 @@ void get_terminal_size(int& rows, int& cols)
     }
 }
 
+uint64_t g_write_calls = 0;
+uint64_t g_frame_write_calls = 0;
+uint64_t g_render_us = 0;
+uint64_t g_sys_us = 0;
+uint64_t g_sample_us = 0;
+uint64_t g_frames = 0;
+
+void write_all(const char* p, size_t n)
+{
+    while (n > 0)
+    {
+        const ssize_t w = write(STDOUT_FILENO, p, n);
+        if (w < 0)
+        {
+            if (errno == EINTR) continue;
+            break;
+        }
+        ++g_write_calls;
+        p += w;
+        n -= static_cast<size_t>(w);
+    }
+}
+
+// One write() for the whole frame: no per-line stdio flush, no tearing.
 void write_frame(const std::string& frame)
 {
-    fwrite(frame.data(), 1, frame.size(), stdout);
     fflush(stdout);
+    write_all(frame.data(), frame.size());
 }
 
 std::vector<std::string> legend_lines()
@@ -985,19 +1148,22 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
 {
     int rows = 40, cols = 120;
     get_terminal_size(rows, cols);
-    if (rows < 10) rows = 10;
-    if (cols < 60) cols = 60;
+    // Never emit more lines or more cells than the terminal actually has:
+    // a single overflowing line makes the terminal wrap and scroll.
+    if (rows < 1) rows = 1;
+    if (cols < 1) cols = 1;
+    const int layout_cols = std::max(cols, 40);
 
     const bool tty = isatty(STDOUT_FILENO) != 0;
-    const int avail = std::max(1, rows - 2);
+    const int avail = std::max(0, rows - 2);
     std::vector<std::string> content;
     int first = 0, last = 0, total = 0;
 
     if (regs_view)
     {
-        auto all = register_lines(cols - 4);
+        auto all = register_lines(layout_cols - 4);
         total = static_cast<int>(all.size());
-        const int inner = std::max(1, rows - 4);
+        const int inner = std::max(0, rows - 4);
         const int max_scroll = std::max(0, total - inner);
         if (reg_scroll > max_scroll) reg_scroll = max_scroll;
         if (reg_scroll < 0) reg_scroll = 0;
@@ -1005,15 +1171,15 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
         std::vector<std::string> slice(all.begin() + reg_scroll, all.begin() + end);
         char title[64];
         snprintf(title, sizeof(title), "V3D REGISTERS  %d-%d of %d", reg_scroll + 1, end, total);
-        content = box(title, slice, cols);
+        content = box(title, slice, layout_cols);
         first = reg_scroll + 1;
         last = end;
     }
     else
     {
-        content = (cols >= 100)
-            ? wide_content(sys, qpu, counters, page, cols)
-            : narrow_content(sys, qpu, counters, page, cols, rows);
+        content = (layout_cols >= 100)
+            ? wide_content(sys, qpu, counters, page, layout_cols)
+            : narrow_content(sys, qpu, counters, page, layout_cols, rows);
         total = static_cast<int>(content.size());
         const int max_scroll = std::max(0, total - avail);
         if (view_scroll > max_scroll) view_scroll = max_scroll;
@@ -1025,17 +1191,46 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
     }
 
     std::vector<std::string> out;
-    out.push_back(build_header(sys, qpu, paused, interval_ms, cols));
-    for (const auto& l : content) out.push_back(pad_visible(clip_vis(l, static_cast<size_t>(cols)), static_cast<size_t>(cols)));
-    out.push_back(build_footer(regs_view, first, last, total, cols));
+    if (rows >= 1) out.push_back(build_header(sys, qpu, paused, interval_ms, layout_cols));
+    if (avail > 0)
+        for (const auto& l : content)
+            out.push_back(pad_visible(clip_vis(l, static_cast<size_t>(layout_cols)),
+                static_cast<size_t>(layout_cols)));
+    if (rows >= 2) out.push_back(build_footer(regs_view, first, last, total, layout_cols));
 
-    while (static_cast<int>(out.size()) < rows) out.push_back(std::string(cols, ' '));
+    // Exactly `rows` physical lines: header + viewport + footer, then blanks.
+    while (static_cast<int>(out.size()) < rows) out.push_back(std::string(layout_cols, ' '));
     if (static_cast<int>(out.size()) > rows) out.resize(rows);
 
     std::string frame;
-    if (tty) frame = "\033[H";
-    for (const auto& l : out) frame += pad_visible(l, static_cast<size_t>(cols)) + (tty ? "\033[K\n" : "\n");
+    frame.reserve(static_cast<size_t>(rows) * (static_cast<size_t>(cols) + 16) + 32);
+    const auto render_start = std::chrono::steady_clock::now();
+    if (tty)
+    {
+        // Wrap off for the whole repaint, home once, one ESC[K per line.
+        // The last line deliberately gets no newline: a newline on the
+        // bottom row would scroll the alternate screen.
+        frame += "\033[?7l\033[H";
+        for (int i = 0; i < rows; ++i)
+        {
+            frame += pad_visible(clip_vis(out[i], static_cast<size_t>(cols)),
+                static_cast<size_t>(cols));
+            frame += "\033[K";
+            if (i + 1 < rows) frame += "\r\n";
+        }
+        frame += "\033[?7h";
+    }
+    else
+    {
+        for (int i = 0; i < rows; ++i) frame += out[i] + "\n";
+    }
+    const uint64_t wc0 = g_write_calls;
     write_frame(frame);
+    g_frame_write_calls += g_write_calls - wc0;
+    const auto render_end = std::chrono::steady_clock::now();
+    g_render_us += static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(render_end - render_start).count());
+    ++g_frames;
 }
 
 void print_sub(const std::string& title)
@@ -1207,6 +1402,12 @@ struct TermState {
     bool alt = false;
 };
 
+// Alternate screen, hidden cursor, wrap disabled, cleared. Restoring turns
+// wrap back on and returns to the shell screen. Both are single writes.
+const char TERM_ENTER[] = "\033[?1049h\033[?7l\033[?25l\033[2J";
+const char TERM_LEAVE[] = "\033[0m\033[?7h\033[?25h\033[?1049l";
+volatile sig_atomic_t g_term_active = 0;
+
 TermState setup_term()
 {
     TermState st;
@@ -1219,30 +1420,56 @@ TermState setup_term()
         raw.c_cc[VTIME] = 0;
         if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) st.valid = true;
     }
-    fputs("\033[?1049h\033[?25l", stdout);
-    fflush(stdout);
+    g_term_active = 1;
+    write_all(TERM_ENTER, sizeof(TERM_ENTER) - 1);
     st.alt = true;
     return st;
 }
 
-void restore_term(const TermState& st)
+void restore_term(TermState& st)
 {
     if (st.alt)
     {
-        fputs("\033[?25h\033[?1049l", stdout);
-        fflush(stdout);
+        st.alt = false;
+        if (g_term_active)
+        {
+            g_term_active = 0;
+            write_all(TERM_LEAVE, sizeof(TERM_LEAVE) - 1);
+        }
     }
-    if (st.valid) tcsetattr(STDIN_FILENO, TCSANOW, &st.orig);
+    if (st.valid)
+    {
+        tcsetattr(STDIN_FILENO, TCSANOW, &st.orig);
+        st.valid = false;
+    }
 }
 
 int read_key()
 {
+    if (g_pending_key >= 0)
+    {
+        const int k = g_pending_key;
+        g_pending_key = -1;
+        return k;
+    }
     unsigned char c = 0;
     if (read(STDIN_FILENO, &c, 1) == 1) return c;
     return 0;
 }
 
-void on_signal(int) { g_running = 0; }
+// SIGINT/SIGTERM/SIGHUP restore the terminal directly from the handler, using
+// only async-signal-safe write(). If the process dies while blocked on the
+// mailbox, the shell still gets its screen, cursor and line wrap back.
+void on_signal(int)
+{
+    g_running = 0;
+    if (g_term_active)
+    {
+        g_term_active = 0;
+        ssize_t r = write(STDOUT_FILENO, TERM_LEAVE, sizeof(TERM_LEAVE) - 1);
+        (void)r;
+    }
+}
 void on_winch(int) { g_winch = 1; }
 
 void help_screen()
@@ -1381,27 +1608,41 @@ int main(int argc, char** argv)
     sa.sa_handler = on_signal;
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
     sa.sa_handler = on_winch;
     sigaction(SIGWINCH, &sa, nullptr);
 
     TermState term = setup_term();
+    g_interactive = true;
 
     int page = 0;
     bool regs_view = false, paused = false;
     int reg_scroll = 0, view_scroll = 0;
     std::vector<CounterValue> counters;
+    SysSampler sampler;
 
     while (g_running)
     {
-        SysData sys;
         QpuData qpu;
-        collect_sys(sys);
+        const auto t_sys0 = std::chrono::steady_clock::now();
+        sample_sys(sampler);
         collect_qpu(qpu);
+        const auto t_sys1 = std::chrono::steady_clock::now();
 
         if (!paused && !regs_view)
             counters = sample_counters(page, interval_ms);
+        const auto t_sys2 = std::chrono::steady_clock::now();
+        g_sys_us += static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(t_sys1 - t_sys0).count());
+        g_sample_us += static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(t_sys2 - t_sys1).count());
+        if (!g_running) break;
 
-        render_tui(sys, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
+        // A resize can arrive while we were sampling; render once with the
+        // new size immediately, then redraw after the key is handled.
+        if (g_winch) g_winch = 0;
+
+        render_tui(sampler.d, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
 
         int key = read_key();
         if (key == 'q' || key == 3) break;
@@ -1444,9 +1685,24 @@ int main(int argc, char** argv)
                 if (view_scroll < 0) view_scroll = 0;
             }
         }
-        if (key == 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (g_winch)
+        {
+            g_winch = 0;
+            render_tui(sampler.d, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
+        }
     }
 
+    g_interactive = false;
     restore_term(term);
+    if (getenv("VC4TOP_STATS") != nullptr && g_frames > 0)
+        fprintf(stderr,
+            "vc4top: frames=%llu render_avg=%.2f ms sys_avg=%.2f ms sample_avg=%.2f ms "
+            "frame_write_calls=%.2f total_write_calls=%llu\n",
+            static_cast<unsigned long long>(g_frames),
+            static_cast<double>(g_render_us) / 1000.0 / static_cast<double>(g_frames),
+            static_cast<double>(g_sys_us) / 1000.0 / static_cast<double>(g_frames),
+            static_cast<double>(g_sample_us) / 1000.0 / static_cast<double>(g_frames),
+            static_cast<double>(g_frame_write_calls) / static_cast<double>(g_frames),
+            static_cast<unsigned long long>(g_write_calls));
     return 0;
 }

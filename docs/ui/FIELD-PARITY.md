@@ -78,4 +78,11 @@ Counter IDs and full names: exact match
 - `--all-counters` rows: 30 -> 30
 - all-counter id/name/order match: True
 
-RESULT: PASS
+## 1.0.1 re-check
+
+The repaint/performance release does not touch any snapshot field or counter
+decode. Re-ran the same comparison against the 1.0.0 package binary on the same
+boot: 43 -> 43 keyed fields in the same order; 30 -> 30 all-counter rows with
+identical IDs/names; 78 -> 78 register rows with identical names/order. Only
+volatile values (time, temperature, CMA free, live clocks, counters, SRQCS,
+PCTRE/PCTRC) differ. RESULT: PASS

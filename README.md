@@ -37,8 +37,8 @@ vc4top
 A prebuilt package and a signed apt repository are available:
 
 ```bash
-curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.0_arm64.deb
-sudo apt install ./vc4top_1.0.0_arm64.deb
+curl -fLO https://rughinnit.github.io/vc4top/pool/main/v/vc4top/vc4top_1.0.1_arm64.deb
+sudo apt install ./vc4top_1.0.1_arm64.deb
 ```
 
 See [docs/DEBIAN.md](docs/DEBIAN.md) for the repository key, apt source line,
@@ -101,6 +101,28 @@ If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI
 - `VPMBASE` (Table 69) is the amount of VPM reserved for user programs in 256-byte units, **not** a base address. `0` means no VPM reserved. Raw QPU compute needs a correct non-zero reservation; the `vc4` KMS driver sets it to 0 because it has no user-QPU interface.
 - Only one process should own the V3D block; a GL/compositor client will conflict with VC4CL and with direct register monitoring.
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
+
+## Changelog
+
+### 1.0.1 (2026-11-19)
+
+- Fix live-view flicker and scrolling: paint the full frame in one buffered
+  `write(2)` on the alternate screen, home with a single `ESC[H`, clear each row
+  with `ESC[K`, disable autowrap and never print a newline on the last row.
+  The layout is clamped to the terminal height, so the counter table stays
+  behind `j`/`k` scrolling instead of scrolling the screen.
+- Restore the screen, cursor and line wrap on every exit path (`q`, `SIGINT`,
+  `SIGTERM`, `SIGHUP`), and recompute the layout on `SIGWINCH`.
+- Cut per-frame work: mailbox clocks/voltages refresh round-robin, temperature
+  and throttle every 500 ms, no shell forks for `date`/CMA. Frame period
+  0.755 s -> 0.568 s at the default 500 ms interval; CPU 1.60 % -> 0.70 %;
+  one `write(2)` per frame. See
+  [docs/ui/PERFORMANCE.md](docs/ui/PERFORMANCE.md).
+
+### 1.0.0
+
+- First packaged release: widened V3D telemetry, paged counters, Debian
+  package and signed apt repository.
 
 ## Credits
 
