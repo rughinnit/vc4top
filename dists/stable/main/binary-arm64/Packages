@@ -4,15 +4,15 @@ Version: 1.0.3
 Priority: optional
 Section: utils
 Maintainer: rughinnit <rughinnit@users.noreply.github.com>
-Installed-Size: 343
+Installed-Size: 344
 Depends: libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1 (>= 3.0)
 Recommends: raspi-config
 Filename: pool/main/v/vc4top/vc4top_1.0.3_arm64.deb
-Size: 109270
-MD5sum: d704e897d0946a9e0435a75ffc083a82
-SHA1: 85ae93e3b8c6e0099c34119de90327f0072fd9be
-SHA256: 7751b08e74b38de59b4be7136eeac0774093f3de4ef8dbb96ed7393866a9b77d
-SHA512: f1c0b8ecb0bc60bc5bbe1732eef11ef264481c5e86568542a7a01c8c71041386f20f2642b2b711f74499baee6038a54b2ef83925c2f5ee4fb55121d6b1a1c7ed
+Size: 109518
+MD5sum: 049fa3b74fb07c745304ea6ee24e5d02
+SHA1: 022cd34af6f57cf38918ce377e20814aae466430
+SHA256: d6548b0c279ac60cecbcf2c8a77ba27a9ec3446474d6c3f9006f0def00fcd866
+SHA512: 09a6e1cf0c35749d6c6d03522f731e3a5bd202bd19533d5790c2332c40662bcdf52e46226ee399610c49efb7f729582be8bf5a3dab1adffa4a51ffad17caefe9
 Homepage: https://github.com/rughinnit/vc4top
 Description: Realtime VideoCore IV / V3D QPU telemetry monitor
  btop-style terminal telemetry monitor for the Broadcom VideoCore IV
