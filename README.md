@@ -1,5 +1,11 @@
 # VC4TOP
 
+> Part of the **VC4 stack**. The main repository — engine, kernels,
+> measurements, documentation and issue tracker — is
+> [`rughinnit/vc4-stack`](https://github.com/rughinnit/vc4-stack); see
+> `docs/ECOSYSTEM.md` there for how the repositories fit together.
+
+
 Realtime terminal monitor for the Broadcom **VideoCore IV** GPU/QPU (Raspberry Pi 1, 2, 3, Zero, Zero 2 W and CM1/CM3). It is a btop-style TUI with the whole V3D block exposed, not just the seven 3D-pipeline percentages of the original vc4top.
 
 Register reads and counter sampling work without root through `vc4mon`, a
