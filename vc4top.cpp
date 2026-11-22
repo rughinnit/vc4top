@@ -25,11 +25,13 @@
 #include <chrono>
 #include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <limits>
 #include <map>
 #include <string>
 #include <thread>
@@ -864,7 +866,7 @@ std::vector<CounterValue> sample_counters_sysfs(int interval_ms)
     return out;
 }
 
-std::vector<CounterValue> sample_counters(int page, int interval_ms)
+std::vector<CounterValue> sample_counters_once(int page, int interval_ms)
 {
     if (!counters_available())
     {
@@ -909,6 +911,20 @@ std::vector<CounterValue> sample_counters(int page, int interval_ms)
     for (size_t i = 0; i < n; ++i)
         wr(V3D_PCTRE, rd(V3D_PCTRE) & ~(1u << i));
     wr(V3D_PCTRC, 0xFFFFu);
+    return out;
+}
+
+// Every sampling path keeps one cadence, including the ones that fail before
+// the measurement window starts (a held vc4mon lease, a write error). Without
+// this a failed read returns immediately and the live loop and the history
+// ring spin at full speed.
+std::vector<CounterValue> sample_counters(int page, int interval_ms)
+{
+    const uint64_t t0 = mono_ms();
+    std::vector<CounterValue> out = sample_counters_once(page, interval_ms);
+    const uint64_t spent = mono_ms() - t0;
+    if (spent < static_cast<uint64_t>(std::max(0, interval_ms)))
+        wait_interval(static_cast<int>(static_cast<uint64_t>(interval_ms) - spent));
     return out;
 }
 
@@ -1097,6 +1113,43 @@ void utilization_values(const std::vector<CounterValue>& counters, double c[7], 
     if (total <= 0) { c[0] = 1; total = 1; }
 }
 
+// The UTILIZATION bars normalise the seven QPU cycle sources 13-19. Other
+// counter pages sample different hardware, so they neither print those bars
+// nor contribute history samples: that is "not measured here", not zero.
+bool qpu_cycle_sources_present(const std::vector<CounterValue>& counters)
+{
+    bool seen[7] = {false, false, false, false, false, false, false};
+    for (const auto& v : counters)
+        if (v.source >= 13 && v.source <= 19) seen[v.source - 13] = true;
+    for (bool s : seen)
+        if (!s) return false;
+    return true;
+}
+
+enum class UtilState { OK, GAP, UNAVAILABLE };
+
+// QPU busy share: 100% minus the Idle share of the same seven cycle counters,
+// through the same normalisation the numeric panel uses. The live frame calls
+// this with the exact counter vector it renders, so the graph's current value
+// and the Idle line cannot disagree. A failed read (or a powered-off V3D) is a
+// GAP and is drawn as a gap; a counter page without sources 13-19 is
+// UNAVAILABLE and contributes no sample at all.
+UtilState qpu_busy_pct(const std::vector<CounterValue>& counters, double& pct)
+{
+    pct = std::numeric_limits<double>::quiet_NaN();
+    if (counters.empty()) return UtilState::GAP;
+    if (!qpu_cycle_sources_present(counters)) return UtilState::UNAVAILABLE;
+    bool live = false;
+    for (const auto& v : counters)
+        if (v.source >= 13 && v.source <= 19 && !v.powered_off) { live = true; break; }
+    if (!live) return UtilState::GAP;
+    double c[7];
+    double total = 0;
+    utilization_values(counters, c, total);
+    pct = 100.0 - 100.0 * c[0] / total;
+    return UtilState::OK;
+}
+
 // One utilization metric per line: aligned label, bar, single percentage.
 // The bar and the percentage encode the same value, so the number is printed
 // exactly once (the previous layout printed a percentage summary line and a
@@ -1122,6 +1175,11 @@ std::vector<std::string> utilization_lines(const std::vector<CounterValue>& coun
 {
     if (!counters_available())
         return {colorize(K_DIM, "n/a (vc4mon counter attributes unavailable)")};
+    if (counters.empty())
+        return {colorize(K_DIM, g_counter_error.empty()
+            ? "n/a (counter sample failed)" : "n/a (" + g_counter_error + ")")};
+    if (!qpu_cycle_sources_present(counters))
+        return {colorize(K_DIM, "n/a (QPU cycle sources 13-19 are not sampled on this counter page)")};
     static const char* labels[7] = {"Idle", "Vertex", "Fragment", "Valid", "Stall TMU", "Stall SB", "Stall Vary"};
     double c[7];
     double total = 0;
@@ -1133,6 +1191,372 @@ std::vector<std::string> utilization_lines(const std::vector<CounterValue>& coun
             static_cast<size_t>(width)));
     return b;
 }
+
+// ---- utilisation history and graph -------------------------------------
+
+// One sample per second of measured counter time. Failed reads are stored as
+// NaN, so a gap is drawn as a gap and never as a quiet zero.
+struct HistSample {
+    float qpu_busy = std::numeric_limits<float>::quiet_NaN();
+    float temp_c = std::numeric_limits<float>::quiet_NaN();
+    float arm_mem = std::numeric_limits<float>::quiet_NaN();
+    float span_s = 0.0f;   // measured time this sample covers, normally 1 s
+};
+
+constexpr size_t HIST_CAPACITY = 300;   // longest window selectable with `u`
+constexpr int HIST_DEFAULT_WINDOW = 120;
+constexpr double HIST_BIN_MS = 1000.0;  // one sample per second measured
+
+struct UtilHistory {
+    std::array<HistSample, HIST_CAPACITY> buf;
+    size_t head = 0;    // next slot to write
+    size_t count = 0;   // stored samples, saturating at HIST_CAPACITY
+    int window = HIST_DEFAULT_WINDOW;
+    bool fixed_scale = true;
+    // Open 1 s bin, weighted by the measurement interval of each counter read.
+    double acc_ms = 0.0;
+    double qpu_sum = 0.0, qpu_ms = 0.0;
+    double temp_sum = 0.0, temp_ms = 0.0;
+    double mem_sum = 0.0, mem_ms = 0.0;
+
+    void push(const HistSample& s)
+    {
+        buf[head] = s;
+        head = (head + 1) % HIST_CAPACITY;
+        if (count < HIST_CAPACITY) ++count;
+    }
+
+    // Newest first: index 0 is the last completed second.
+    const HistSample& at(size_t i) const
+    {
+        return buf[(head + HIST_CAPACITY - 1 - i) % HIST_CAPACITY];
+    }
+
+    void add(bool have_qpu, double qpu, bool have_temp, double temp,
+        bool have_mem, double mem, int weight_ms)
+    {
+        const double w = weight_ms > 0 ? static_cast<double>(weight_ms) : 1.0;
+        acc_ms += w;
+        if (have_qpu) { qpu_sum += qpu * w; qpu_ms += w; }
+        if (have_temp) { temp_sum += temp * w; temp_ms += w; }
+        if (have_mem) { mem_sum += mem * w; mem_ms += w; }
+        if (acc_ms >= HIST_BIN_MS) flush();
+    }
+
+    void flush()
+    {
+        if (acc_ms <= 0.0) return;
+        HistSample s;
+        if (qpu_ms > 0.0) s.qpu_busy = static_cast<float>(qpu_sum / qpu_ms);
+        if (temp_ms > 0.0) s.temp_c = static_cast<float>(temp_sum / temp_ms);
+        if (mem_ms > 0.0) s.arm_mem = static_cast<float>(mem_sum / mem_ms);
+        s.span_s = static_cast<float>(acc_ms / 1000.0);
+        push(s);
+        acc_ms = qpu_sum = qpu_ms = temp_sum = temp_ms = mem_sum = mem_ms = 0.0;
+    }
+};
+
+enum HistSeries { HIST_QPU, HIST_TEMP, HIST_MEM };
+
+std::vector<float> hist_series(const UtilHistory& h, int which, size_t window)
+{
+    const size_t n = std::min(window, h.count);
+    std::vector<float> out;
+    out.reserve(n);
+    for (size_t i = n; i-- > 0;) {   // oldest first
+        const HistSample& s = h.at(i);
+        out.push_back(which == HIST_QPU ? s.qpu_busy
+            : which == HIST_TEMP ? s.temp_c : s.arm_mem);
+    }
+    return out;
+}
+
+double hist_span(const UtilHistory& h, size_t window)
+{
+    const size_t n = std::min(window, h.count);
+    double s = 0.0;
+    for (size_t i = 0; i < n; ++i) s += h.at(i).span_s;
+    return s;
+}
+
+struct SeriesStats {
+    int n = 0;
+    int gaps = 0;
+    bool any = false;
+    double mean = 0.0;
+    double lowest = 0.0;
+    double peak = 0.0;
+    double newest = 0.0;
+    double span_s = 0.0;
+};
+
+SeriesStats series_stats(const std::vector<float>& v, double span_s)
+{
+    SeriesStats st;
+    st.n = static_cast<int>(v.size());
+    st.span_s = span_s;
+    double sum = 0.0;
+    for (float f : v) {
+        if (std::isnan(f)) { ++st.gaps; continue; }
+        if (!st.any) { st.lowest = f; st.peak = f; }
+        st.any = true;
+        sum += f;
+        st.newest = f;
+        if (f < st.lowest) st.lowest = f;
+        if (f > st.peak) st.peak = f;
+    }
+    if (st.n > st.gaps) st.mean = sum / (st.n - st.gaps);
+    return st;
+}
+
+std::string fmt_span(double seconds)
+{
+    const int s = static_cast<int>(seconds + 0.5);
+    if (s < 60) return std::to_string(s) + "s";
+    char b[32];
+    snprintf(b, sizeof(b), "%d:%02d", s / 60, s % 60);
+    return b;
+}
+
+const char* util_severity_color(double v)
+{
+    if (v >= 80.0) return K_RED;
+    if (v >= 50.0) return K_YELLOW;
+    return K_GREEN;
+}
+
+const char* temp_value_color(double v)
+{
+    if (v >= 80.0) return K_RED;
+    if (v >= 70.0) return K_YELLOW;
+    return K_GREEN;
+}
+
+const char* mem_value_color(double v)
+{
+    if (v >= 90.0) return K_RED;
+    if (v >= 75.0) return K_YELLOW;
+    return K_GREEN;
+}
+
+typedef const char* (*SeriesColor)(double);
+
+// Braille bit for dot column 0/1, dot row 0..3 from the top of the cell.
+constexpr uint8_t BRAILLE_BIT[2][4] = {
+    {0x01, 0x02, 0x04, 0x40},
+    {0x08, 0x10, 0x20, 0x80}};
+
+std::string braille_cell(uint8_t bits)
+{
+    const unsigned cp = 0x2800u + bits;
+    std::string s;
+    s += static_cast<char>(0xE0u | (cp >> 12));
+    s += static_cast<char>(0x80u | ((cp >> 6) & 0x3F));
+    s += static_cast<char>(0x80u | (cp & 0x3F));
+    return s;
+}
+
+// Area sparkline in braille. Each cell is two dot columns and four dot rows,
+// so `width` cells draw 2*width sample columns at 4*rows levels. The newest
+// sample sits at the right edge; a window longer than the graph is reduced
+// with one maximum per column, so a peak never disappears. Valid samples light
+// every dot from the baseline up to their value, which keeps 0 % visible as a
+// floor. A failed sample is a dim '·' on the baseline; columns older than the
+// history are blank, so start-up does not look like a run of failed reads.
+std::vector<std::string> braille_area(const std::vector<float>& vals, double lo, double hi,
+    int width, int rows, SeriesColor color_of)
+{
+    std::vector<std::string> out;
+    if (width < 2 || rows < 1) return out;
+    if (!(hi > lo)) hi = lo + 1.0;
+    const int dot_rows = rows * 4;
+    const int ncols = width * 2;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<float> col(static_cast<size_t>(ncols), nan);
+    std::vector<char> gap(static_cast<size_t>(ncols), 0);
+    const int n = static_cast<int>(vals.size());
+    if (n > 0 && n <= ncols) {
+        const int start = ncols - n;   // right-aligned: newest at the edge
+        for (int i = 0; i < n; ++i) {
+            col[static_cast<size_t>(start + i)] = vals[static_cast<size_t>(i)];
+            gap[static_cast<size_t>(start + i)] =
+                std::isnan(vals[static_cast<size_t>(i)]) ? 1 : 0;
+        }
+    } else if (n > ncols) {
+        for (int k = 0; k < ncols; ++k) {
+            const int a = static_cast<int>(static_cast<long long>(k) * n / ncols);
+            int b = static_cast<int>(static_cast<long long>(k + 1) * n / ncols);
+            if (b <= a) b = a + 1;
+            float best = nan;
+            for (int i = a; i < b && i < n; ++i) {
+                const float f = vals[static_cast<size_t>(i)];
+                if (!std::isnan(f) && (std::isnan(best) || f > best)) best = f;
+            }
+            col[static_cast<size_t>(k)] = best;
+            gap[static_cast<size_t>(k)] = std::isnan(best) ? 1 : 0;
+        }
+    }
+    for (int r = 0; r < rows; ++r) {
+        std::string line;
+        for (int c = 0; c < width; ++c) {
+            uint8_t bits = 0;
+            bool have = false;
+            double peak = lo;
+            for (int dc = 0; dc < 2; ++dc) {
+                const float v = col[static_cast<size_t>(c * 2 + dc)];
+                if (std::isnan(v)) continue;
+                have = true;
+                if (v > peak) peak = v;
+                const double clamped = std::min(std::max(static_cast<double>(v), lo), hi);
+                int ndots = static_cast<int>(std::lround((clamped - lo) / (hi - lo) * dot_rows));
+                if (ndots < 1) ndots = 1;      // 0 % is a floor, not a blank
+                if (ndots > dot_rows) ndots = dot_rows;
+                for (int s = 0; s < 4; ++s) {
+                    const int level = dot_rows - 1 - (r * 4 + s);   // from baseline
+                    if (level < ndots) bits |= BRAILLE_BIT[dc][s];
+                }
+            }
+            if (have) {
+                line += colorize(color_of(peak), braille_cell(bits));
+            } else if (r == rows - 1 && (gap[static_cast<size_t>(c * 2)] ||
+                       gap[static_cast<size_t>(c * 2 + 1)])) {
+                line += colorize(K_DIM, "\xC2\xB7");
+            } else {
+                line += " ";
+            }
+        }
+        out.push_back(line);
+    }
+    return out;
+}
+
+// Header, labelled axis and braille rows. `now` is the live value from the
+// current frame, which is the same number the numeric panel shows; the bars are
+// the completed seconds. The axis prints the actual range, so fixed and auto
+// scaling are both explicit; `auto` is added to the header when it is selected.
+std::vector<std::string> history_graph(const std::vector<float>& vals, double now,
+    const std::string& label, const char* unit, double fixed_lo, double fixed_hi,
+    bool fixed, int width, int rows, SeriesColor color_of, double span_s)
+{
+    std::vector<std::string> out;
+    if (width < 8) return out;
+    const SeriesStats st = series_stats(vals, span_s);
+    double lo = fixed_lo;
+    double hi = fixed_hi;
+    if (!fixed && st.any) {
+        // Auto zooms to the window but stays inside the series' own domain, so
+        // a percentage never gets an axis below 0 or above 100.
+        const double pad = std::max(1.0, (st.peak - st.lowest) * 0.1);
+        lo = std::max(fixed_lo, st.lowest - pad);
+        hi = std::min(fixed_hi, st.peak + pad);
+        if (hi <= lo) { lo = fixed_lo; hi = fixed_hi; }
+    } else if (!st.any) {
+        lo = fixed_lo;
+        hi = fixed_hi;
+    }
+    const std::string u(unit);
+    char num_now[48];
+    if (std::isnan(now)) snprintf(num_now, sizeof(num_now), "n/a");
+    else snprintf(num_now, sizeof(num_now), "%.1f%s", now, u.c_str());
+
+    char b[192];
+    std::vector<std::string> cand;
+    if (st.any) {
+        snprintf(b, sizeof(b), "%s %s  mean %.1f%s  peak %.1f%s%s",
+            label.c_str(), num_now, st.mean, u.c_str(), st.peak, u.c_str(),
+            fixed ? "" : "  auto");
+        cand.push_back(b);
+        snprintf(b, sizeof(b), "%s %s  mean %.1f%s  pk %.1f%s",
+            label.c_str(), num_now, st.mean, u.c_str(), st.peak, u.c_str());
+        cand.push_back(b);
+        snprintf(b, sizeof(b), "%s %s  pk %.1f%s", label.c_str(), num_now, st.peak, u.c_str());
+        cand.push_back(b);
+    } else {
+        snprintf(b, sizeof(b), "%s %s  no samples", label.c_str(), num_now);
+        cand.push_back(b);
+    }
+    snprintf(b, sizeof(b), "%s %s", label.c_str(), num_now);
+    cand.push_back(b);
+    std::string head = cand.back();
+    for (const auto& c : cand) {
+        if (visible_len(c) <= static_cast<size_t>(width)) { head = c; break; }
+    }
+    out.push_back(clip_vis(head, static_cast<size_t>(width)));
+
+    const bool axis = width >= 24;
+    const int gwidth = axis ? width - 4 : width;
+    const auto rowsout = braille_area(vals, lo, hi, gwidth, std::max(1, rows), color_of);
+    char top[16], bot[16];
+    snprintf(top, sizeof(top), "%3.0f|", hi);
+    snprintf(bot, sizeof(bot), "%3.0f|", lo);
+    for (size_t i = 0; i < rowsout.size(); ++i) {
+        const char* lab = i == 0 ? top : (i + 1 == rowsout.size() ? bot : "   |");
+        out.push_back(std::string(lab) + rowsout[i]);
+    }
+    return out;
+}
+
+// Numeric bars plus the history graph. `graph_rows` is the height of the QPU
+// graph; the optional overlay adds temperature and ARM memory below it, each
+// with its own header, unit and axis rather than sharing the QPU scale.
+std::vector<std::string> utilization_panel(const SysData& sys,
+    const std::vector<CounterValue>& counters, const UtilHistory& hist, int width,
+    int graph_rows, int overlay_rows, bool overlays, int max_bar = 30)
+{
+    std::vector<std::string> b = utilization_lines(counters, width, max_bar);
+    if (width < 16) return b;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    const size_t win = static_cast<size_t>(std::max(1, hist.window));
+    double now = nan;
+    if (qpu_busy_pct(counters, now) != UtilState::OK) now = nan;
+    const double span = hist_span(hist, win);
+    std::vector<float> q = hist_series(hist, HIST_QPU, win);
+    // The sample in progress is the rightmost column, so the graph ends at the
+    // value the header calls "now" instead of one second behind it.
+    if (!std::isnan(now)) {
+        q.push_back(static_cast<float>(now));
+        if (q.size() > win) q.erase(q.begin());
+    }
+    append(b, history_graph(q, now, "QPU busy", "%", 0.0, 100.0, hist.fixed_scale,
+        width, std::max(1, graph_rows), util_severity_color, span));
+
+    const SeriesStats st = series_stats(q, span);
+    std::string cap = std::to_string(st.n) + "/" + std::to_string(hist.window) +
+        " samples, " + fmt_span(span);
+    if (!hist.fixed_scale) cap += ", auto scale";
+    if (st.n == 0) cap = "no samples yet";
+    else if (width >= 56) cap = "busy = 100% - Idle | " + cap;
+    b.push_back(colorize(K_DIM, clip_vis(cap, static_cast<size_t>(width))));
+    if (!overlays) return b;
+
+    double tnow = nan;
+    {
+        char* end = nullptr;
+        const double v = strtod(sys.temp.c_str(), &end);
+        if (end != sys.temp.c_str()) tnow = v;
+    }
+    const MemStat arm = arm_mem_stat(sys);
+    const double mnow = arm.valid ? arm.pct : nan;
+    std::vector<float> tv = hist_series(hist, HIST_TEMP, win);
+    std::vector<float> mv = hist_series(hist, HIST_MEM, win);
+    if (!std::isnan(tnow)) {
+        tv.push_back(static_cast<float>(tnow));
+        if (tv.size() > win) tv.erase(tv.begin());
+    }
+    if (!std::isnan(mnow)) {
+        mv.push_back(static_cast<float>(mnow));
+        if (mv.size() > win) mv.erase(mv.begin());
+    }
+    b.push_back("");
+    append(b, history_graph(tv, tnow, "temp", "\xC2\xB0\x43",
+        20.0, 90.0, hist.fixed_scale, width, std::max(1, overlay_rows), temp_value_color, span));
+    b.push_back("");
+    append(b, history_graph(mv, mnow, "ARM mem", "%",
+        0.0, 100.0, hist.fixed_scale, width, std::max(1, overlay_rows), mem_value_color, span));
+    return b;
+}
+
 
 std::string page_title(int page)
 {
@@ -1401,6 +1825,8 @@ static std::vector<std::string> wide_note_lines(int cols)
         "rate: counts/s over interval",
         "memory: ARM from /proc, GPU/CMA pool",
         "util: label + bar + %, printed once",
+        "graph: QPU busy = 100% - Idle, 1 s/bin, ring 30/120/300 (u)",
+        "f: fixed 0-100% or auto scale; o: temp + ARM mem overlay",
         "QPU counters are 3D-oriented; raw compute may leave idle/valid at zero",
         "h: full help/flags"};
     std::vector<std::string> out;
@@ -1498,6 +1924,10 @@ std::vector<std::string> note_lines()
         "rate = counts/s over interval",
         "memory: ARM /proc, GPU/CMA pool",
         "util: label + bar + %, printed once",
+        "graph: QPU busy = 100% - Idle",
+        "1 s/sample, ring 30/120/300 (u)",
+        "f fixed 0-100% / auto scale",
+        "o temp + ARM mem overlay, own axes",
         "QPU counters are 3D-oriented;",
         "raw compute may leave idle/",
         "valid at zero.",
@@ -1524,7 +1954,8 @@ void compose_three(const std::vector<std::string>& a, const std::vector<std::str
 // remaining screen row, so a short 45-row desktop terminal does not waste the
 // width on fixed percentage columns or leave a blank band under the panels.
 std::vector<std::string> wide_desktop_content(const SysData& sys, const QpuData& qpu,
-    const std::vector<CounterValue>& counters, int page, int cols, int avail)
+    const std::vector<CounterValue>& counters, const UtilHistory& hist, int page, int cols,
+    int avail, bool util_overlay)
 {
     std::vector<std::string> out;
     if (avail <= 0) return out;
@@ -1546,8 +1977,10 @@ std::vector<std::string> wide_desktop_content(const SysData& sys, const QpuData&
     const std::vector<std::string> sys_body = system_lines(sys, sys_w - 4);
     const std::vector<std::string> qpu_body = qpu_lines(qpu, qpu_w - 4);
     // Wide panels have room for bars that actually use the available width.
-    const std::vector<std::string> util_body =
-        utilization_lines(counters, util_w - 4, std::max(30, util_w - 27));
+    // The graph gets four rows unless the overlay is on, in which case the
+    // two extra series keep the panel inside a 45-row terminal.
+    const std::vector<std::string> util_body = utilization_panel(sys, counters, hist,
+        util_w - 4, util_overlay ? 2 : 4, 2, util_overlay, std::max(30, util_w - 27));
     std::vector<std::string> ctr_body = wide_counter_body(counters, cols);
     if (page != 0 && g_reg_source != REGS_SYSFS)
         ctr_body.push_back(colorize(K_DIM,
@@ -1577,7 +2010,7 @@ std::vector<std::string> wide_desktop_content(const SysData& sys, const QpuData&
     std::vector<std::vector<std::string>> top;
     top.push_back(box_sized("SYSTEM / POWER / MEMORY", sys_body, sys_w, top_h));
     top.push_back(box_sized("QPU / QUEUES / VPM", qpu_body, qpu_w, top_h));
-    top.push_back(box_sized("UTILIZATION", util_body, util_w, top_h));
+    top.push_back(box_sized("UTILIZATION  busy = 100% - Idle", util_body, util_w, top_h));
     compose_row(top, {sys_w, qpu_w, util_w}, gap, out);
 
     out.push_back(std::string(static_cast<size_t>(cols), ' '));
@@ -1593,11 +2026,12 @@ std::vector<std::string> wide_desktop_content(const SysData& sys, const QpuData&
 }
 
 std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
-    const std::vector<CounterValue>& counters, int page, int cols, int avail)
+    const std::vector<CounterValue>& counters, const UtilHistory& hist, int page, int cols,
+    int avail, bool util_overlay)
 {
     std::vector<std::string> out;
     if (cols >= 160)
-        return wide_desktop_content(sys, qpu, counters, page, cols, avail);
+        return wide_desktop_content(sys, qpu, counters, hist, page, cols, avail, util_overlay);
     if (cols >= 136)
     {
         const int w1 = cols * 35 / 100;
@@ -1605,7 +2039,8 @@ std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
         const int w3 = cols - w1 - w2 - 2;
         std::vector<std::string> c1;
         append(c1, box("SYSTEM / POWER / MEMORY", system_lines(sys, w1 - 4), w1));
-        append(c1, box("UTILIZATION", utilization_lines(counters, w1 - 4), w1));
+        append(c1, box("UTILIZATION  busy = 100% - Idle", utilization_panel(sys, counters, hist, w1 - 4,
+            util_overlay ? 2 : 3, 2, util_overlay), w1));
         std::vector<std::string> c2;
         append(c2, box("QPU / QUEUES / VPM", qpu_lines(qpu, w2 - 4), w2));
         std::vector<std::string> c3;
@@ -1620,7 +2055,8 @@ std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
     std::vector<std::string> left;
     append(left, box("SYSTEM / POWER / MEMORY", system_lines(sys, left_w - 4), left_w));
     append(left, box("QPU / QUEUES / VPM", qpu_lines(qpu, left_w - 4), left_w));
-    append(left, box("UTILIZATION", utilization_lines(counters, left_w - 4), left_w));
+    append(left, box("UTILIZATION  busy = 100% - Idle", utilization_panel(sys, counters, hist, left_w - 4,
+        util_overlay ? 2 : 3, 2, util_overlay), left_w));
     std::vector<std::string> right;
     append(right, box("COUNTERS", counter_lines(counters, page, right_w - 4), right_w));
     append(right, box("FLAGS / NOTES", note_lines(), right_w));
@@ -1629,18 +2065,19 @@ std::vector<std::string> wide_content(const SysData& sys, const QpuData& qpu,
 }
 
 std::vector<std::string> narrow_content(const SysData& sys, const QpuData& qpu,
-    const std::vector<CounterValue>& counters, int page, int cols, int rows)
+    const std::vector<CounterValue>& counters, const UtilHistory& hist, int page, int cols,
+    int rows, bool util_overlay)
 {
     std::vector<std::string> out;
     const int w = cols - 2;
     const bool roomy = rows >= 30;
     if (roomy) out.push_back(section_line("STATUS", cols));
     for (const auto& l : system_lines(sys, w)) out.push_back(" " + l);
-    out.push_back(section_line("UTILIZATION", cols));
-    for (const auto& l : utilization_lines(counters, w)) out.push_back(" " + l);
-    // The counter page title replaces the old separate COUNTERS heading, so
-    // the table header + first rows stay on the 80x24 screen now that the
-    // always-on legend occupies two footer rows.
+    out.push_back(section_line("UTILIZATION  busy = 100% - Idle", cols));
+    for (const auto& l : utilization_panel(sys, counters, hist, w, 2, 2, util_overlay))
+        out.push_back(" " + l);
+    // The counter page title replaces the old separate COUNTERS heading;
+    // at 80x24 the table starts one scroll below the utilization graph.
     out.push_back(section_line("COUNTERS  " + page_title(page) + "  counts", cols));
     for (const auto& l : counter_lines(counters, page, w, false)) out.push_back(" " + l);
     out.push_back(section_line("QPU / QUEUES / VPM", cols));
@@ -1675,11 +2112,11 @@ std::vector<std::string> build_footer(bool regs_view, int first, int last, int t
 {
     std::string keys;
     if (cols >= 110)
-        keys = "q quit  a/[] page  g regs  j/k scroll  p pause  +/- int  h help/flags";
+        keys = "q quit  a page  g regs  j/k  p pause  +/- int  u window  f scale  o overlay  h help";
     else if (cols >= 80)
-        keys = "q quit  a page  g regs  j/k scroll  p pause  +/- int  h help";
+        keys = "q quit  a page  g regs  j/k  p  u window  f scale  o ovl  h help";
     else
-        keys = "q quit  a page  g regs  j/k  p pause  +/-  h help";
+        keys = "q quit a page g regs j/k p u win f scale o ovl h help";
     std::string range;
     if (total > 0 && (first > 1 || last < total))
     {
@@ -1718,7 +2155,8 @@ std::vector<std::string> build_footer(bool regs_view, int first, int last, int t
 }
 
 void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<CounterValue>& counters,
-    int page, bool regs_view, int& reg_scroll, bool paused, int interval_ms, int& view_scroll)
+    const UtilHistory& hist, int page, bool regs_view, int& reg_scroll, bool paused,
+    int interval_ms, int& view_scroll, bool util_overlay)
 {
     int rows = 40, cols = 120;
     get_terminal_size(rows, cols);
@@ -1754,8 +2192,8 @@ void render_tui(const SysData& sys, const QpuData& qpu, const std::vector<Counte
     else
     {
         content = (layout_cols >= 100)
-            ? wide_content(sys, qpu, counters, page, layout_cols, avail)
-            : narrow_content(sys, qpu, counters, page, layout_cols, rows);
+            ? wide_content(sys, qpu, counters, hist, page, layout_cols, avail, util_overlay)
+            : narrow_content(sys, qpu, counters, hist, page, layout_cols, rows, util_overlay);
         total = static_cast<int>(content.size());
         const int max_scroll = std::max(0, total - avail);
         if (view_scroll > max_scroll) view_scroll = max_scroll;
@@ -2018,6 +2456,88 @@ void poll_loop(int interval_ms)
     }
 }
 
+// --dump-samples: run the same 1 Hz history sampler headless and print the
+// ring as CSV plus the braille graph, so the numbers behind the TUI graph can
+// be checked without a terminal. Empty CSV fields are gaps.
+int dump_samples(int seconds, int interval_ms)
+{
+    g_color = false;   // the dump is plain text by contract
+    SysSampler sampler;
+    UtilHistory hist;
+    std::vector<CounterValue> counters;
+    unsigned long reads = 0, failed = 0;
+    const uint64_t start = mono_ms();
+    while (g_running &&
+        static_cast<long long>(mono_ms() - start) < static_cast<long long>(seconds) * 1000)
+    {
+        sample_sys(sampler);
+        counters = sample_counters(0, interval_ms);
+        ++reads;
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        double busy = nan;
+        const UtilState st = qpu_busy_pct(counters, busy);
+        if (st != UtilState::OK) ++failed;
+        double temp = nan;
+        {
+            char* end = nullptr;
+            const double v = strtod(sampler.d.temp.c_str(), &end);
+            if (end != sampler.d.temp.c_str()) temp = v;
+        }
+        const MemStat arm = arm_mem_stat(sampler.d);
+        hist.add(st == UtilState::OK, busy, !std::isnan(temp), temp,
+            arm.valid, arm.pct, interval_ms);
+    }
+    hist.flush();
+
+    const size_t win = static_cast<size_t>(std::max(1, hist.window));
+    const size_t n = std::min(win, hist.count);
+    const std::vector<float> q = hist_series(hist, HIST_QPU, win);
+    const double span = hist_span(hist, win);
+    const SeriesStats qs = series_stats(q, span);
+
+    printf("# vc4top utilisation history\n");
+    printf("# reads=%lu failed=%lu interval=%d ms window=%d samples\n",
+        reads, failed, interval_ms, hist.window);
+    printf("# one sample per 1000 ms of measured counter time; empty field = gap\n");
+    printf("index,age_s,span_s,qpu_busy_pct,temp_c,arm_mem_pct\n");
+    std::vector<HistSample> samples;
+    samples.reserve(n);
+    for (size_t i = n; i-- > 0;) samples.push_back(hist.at(i));   // oldest first
+    const auto field = [](float v) -> std::string {
+        if (std::isnan(v)) return std::string();
+        char b[32];
+        snprintf(b, sizeof(b), "%.1f", static_cast<double>(v));
+        return std::string(b);
+    };
+    double cum = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        cum += samples[i].span_s;
+        printf("%zu,%.1f,%.1f,%s,%s,%s\n", i, span - cum, static_cast<double>(samples[i].span_s),
+            field(samples[i].qpu_busy).c_str(), field(samples[i].temp_c).c_str(),
+            field(samples[i].arm_mem).c_str());
+    }
+    if (qs.any)
+        printf("# samples=%d gaps=%d mean=%.1f peak=%.1f span=%.1f s\n",
+            qs.n, qs.gaps, qs.mean, qs.peak, qs.span_s);
+    else
+        printf("# samples=%d gaps=%d mean=n/a peak=n/a span=%.1f s\n",
+            qs.n, qs.gaps, qs.span_s);
+
+    const int cells = std::max(20, std::min(120, static_cast<int>((n + 1) / 2)));
+    printf("# graph: QPU busy %% (fixed 0-100, %.1f s window)\n", span);
+    for (const auto& l : braille_area(q, 0.0, 100.0, cells, 4, util_severity_color))
+        printf("%s\n", l.c_str());
+    printf("# graph: temperature (fixed 20-90 degC)\n");
+    for (const auto& l : braille_area(hist_series(hist, HIST_TEMP, win), 20.0, 90.0,
+            cells, 4, temp_value_color))
+        printf("%s\n", l.c_str());
+    printf("# graph: ARM memory %% (fixed 0-100)\n");
+    for (const auto& l : braille_area(hist_series(hist, HIST_MEM, win), 0.0, 100.0,
+            cells, 4, mem_value_color))
+        printf("%s\n", l.c_str());
+    return 0;
+}
+
 struct TermState {
     struct termios orig;
     bool valid = false;
@@ -2100,15 +2620,16 @@ void help_screen()
     get_terminal_size(rows, cols);
     std::vector<std::string> body = {
         "KEYS",
-        "  q quit    a/[] page    g regs",
-        "  j/k scroll    p pause    +/- interval",
-        "  h this help (any key returns)",
+        "  q quit    a/[] page    g regs    j/k scroll",
+        "  p pause    +/- interval    h this help (any key returns)",
+        "  u window 30/120/300 s    f fixed/auto scale    o temp/mem overlay",
         "FLAGS",
         "  --once            wide snapshot + primary counters",
         "  --all-counters    all 30 counter sources",
         "  --regs            full V3D register map",
         "  --poll [ms]       CSV scheduler stream",
         "  --frame           one TUI frame, then exit",
+        "  --dump-samples s ring as CSV + graph",
         "  --no-color        plain text (or NO_COLOR=1)",
         "UNITS",
         "  MHz clocks, \xC2\xB0\x43 temperature, MiB memory, % utilization,",
@@ -2118,8 +2639,11 @@ void help_screen()
         "  ARM      MemTotal - MemAvailable (/proc/meminfo)",
         "  GPU/CMA  CmaTotal - CmaFree (GPU pool)",
         "  each: label + bar + % + used/total MiB",
-        "UTILIZATION",
-        "  one line per metric: label + bar + %",
+        "UTILIZATION GRAPH",
+        "  QPU busy = 100% - Idle, cycle counters 13-19, 1 s/sample",
+        "  braille area, ring 30/120/300, . = failed sample (gap)",
+        "  f auto-scale prints its range; o: temp 20-90 \xC2\xB0\x43, ARM mem 0-100%",
+        "  history pauses on counter pages 2/3 (13-19 not sampled there)",
         "REGISTERS",
         "  root: /dev/mem; unprivileged: /sys/kernel/vc4mon",
         "  counters: perf_enable/perf_clear only (PCTRE/PCTRC)",
@@ -2160,6 +2684,7 @@ int main(int argc, char** argv)
 {
     bool once = false, all_counters = false, regs = false, poll = false, frame_only = false, no_color = false;
     int interval_ms = DEFAULT_INTERVAL_MS;
+    int dump_secs = 0;
 
     static const struct option long_opts[] = {
         {"once", no_argument, nullptr, 'o'},
@@ -2168,12 +2693,13 @@ int main(int argc, char** argv)
         {"poll", optional_argument, nullptr, 'P'},
         {"frame", no_argument, nullptr, 'F'},
         {"no-color", no_argument, nullptr, 'C'},
+        {"dump-samples", required_argument, nullptr, 'D'},
         {"interval", required_argument, nullptr, 'i'},
         {"help", no_argument, nullptr, 'h'},
         {nullptr, 0, nullptr, 0}};
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "oARFCP::i:s:u:h", long_opts, nullptr)) != -1)
+    while ((opt = getopt_long(argc, argv, "oARFCP::D:i:s:u:h", long_opts, nullptr)) != -1)
     {
         switch (opt)
         {
@@ -2186,24 +2712,29 @@ int main(int argc, char** argv)
             break;
         case 'F': frame_only = true; break;
         case 'C': no_color = true; break;
+        case 'D': dump_secs = atoi(optarg); break;
         case 'i': interval_ms = atoi(optarg); break;
         case 's': interval_ms = atoi(optarg); break;
         case 'u': break; // compatibility with the terminal fork; single interval here
         case 'h':
             printf("usage: vc4top [--once] [--all-counters] [--regs] [--poll [ms]]\n");
-            printf("               [--frame] [--no-color] [--interval ms]\n\n");
+            printf("               [--frame] [--dump-samples s] [--no-color]\n");
+            printf("               [--interval ms]\n\n");
             printf("  --once           wide snapshot: system, QPU and primary counters\n");
             printf("  --all-counters   all 30 counter sources (pages 2 and 3)\n");
             printf("  --regs           append the full V3D register map\n");
             printf("  --poll [ms]      CSV stream of scheduler registers\n");
             printf("  --frame          render one TUI frame and exit\n");
+            printf("  --dump-samples s sample the utilisation ring for s seconds,\n");
+            printf("                   then print it as CSV plus the braille graph\n");
             printf("  --no-color       plain text (same as NO_COLOR=1)\n");
             printf("  --interval ms    sample interval, 50..10000 ms\n");
             printf("\nRegisters: root uses /dev/mem; unprivileged uses\n");
             printf("/sys/kernel/vc4mon (modprobe vc4mon). Counter sampling uses\n");
             printf("only perf_enable and perf_clear (PCTRE/PCTRC).\n");
             printf("\nKeys in the TUI: q quit, a/[] page, g regs, j/k scroll,\n");
-            printf("p pause, +/- interval, h help/flags.\n");
+            printf("p pause, +/- interval, u window, f scale, o overlay,\n");
+            printf("h help/flags.\n");
             return 0;
         default:
             return 1;
@@ -2231,15 +2762,29 @@ int main(int argc, char** argv)
     if (!v3d_powered())
         fprintf(stderr, "vc4top: warning: V3D reads 0xdeadbeef; start vc4cl-v3d-power\n");
 
+    if (dump_secs > 0)
+    {
+        if (dump_secs < 5) dump_secs = 5;
+        if (dump_secs > 3600) dump_secs = 3600;
+        struct sigaction sa = {};
+        sa.sa_handler = on_signal;
+        sigaction(SIGINT, &sa, nullptr);
+        sigaction(SIGTERM, &sa, nullptr);
+        sigaction(SIGHUP, &sa, nullptr);
+        return dump_samples(dump_secs, interval_ms);
+    }
+
     if (frame_only)
     {
         SysData sys;
         QpuData qpu;
+        UtilHistory hist;
         collect_sys(sys);
         collect_qpu(qpu);
         auto counters = sample_counters(0, interval_ms);
         int reg_scroll = 0, view_scroll = 0;
-        render_tui(sys, qpu, counters, 0, false, reg_scroll, false, interval_ms, view_scroll);
+        render_tui(sys, qpu, counters, hist, 0, false, reg_scroll, false, interval_ms,
+            view_scroll, false);
         return 0;
     }
 
@@ -2261,10 +2806,11 @@ int main(int argc, char** argv)
     g_interactive = true;
 
     int page = 0;
-    bool regs_view = false, paused = false;
+    bool regs_view = false, paused = false, util_overlay = false;
     int reg_scroll = 0, view_scroll = 0;
     std::vector<CounterValue> counters;
     SysSampler sampler;
+    UtilHistory hist;
 
     while (g_running)
     {
@@ -2275,7 +2821,25 @@ int main(int argc, char** argv)
         const auto t_sys1 = std::chrono::steady_clock::now();
 
         if (!paused && !regs_view)
+        {
             counters = sample_counters(page, interval_ms);
+            // One history sample per second of measured counter time, taken
+            // from the same vector the frame renders. A failed read records a
+            // gap; another counter page has no QPU cycle sources, so it is
+            // skipped rather than recorded as one.
+            double busy = std::numeric_limits<double>::quiet_NaN();
+            const UtilState st = qpu_busy_pct(counters, busy);
+            if (st != UtilState::UNAVAILABLE)
+            {
+                double temp = std::numeric_limits<double>::quiet_NaN();
+                char* end = nullptr;
+                const double tv = strtod(sampler.d.temp.c_str(), &end);
+                if (end != sampler.d.temp.c_str()) temp = tv;
+                const MemStat arm = arm_mem_stat(sampler.d);
+                hist.add(st == UtilState::OK, busy, !std::isnan(temp), temp,
+                    arm.valid, arm.pct, interval_ms);
+            }
+        }
         const auto t_sys2 = std::chrono::steady_clock::now();
         g_sys_us += static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(t_sys1 - t_sys0).count());
@@ -2287,7 +2851,8 @@ int main(int argc, char** argv)
         // new size immediately, then redraw after the key is handled.
         if (g_winch) g_winch = 0;
 
-        render_tui(sampler.d, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
+        render_tui(sampler.d, qpu, counters, hist, page, regs_view, reg_scroll, paused,
+            interval_ms, view_scroll, util_overlay);
 
         int key = read_key();
         if (key == 'q' || key == 3) break;
@@ -2304,6 +2869,18 @@ int main(int argc, char** argv)
         else if (key == 'p')
         {
             paused = !paused;
+        }
+        else if (key == 'u')
+        {
+            hist.window = hist.window == 30 ? 120 : hist.window == 120 ? 300 : 30;
+        }
+        else if (key == 'f')
+        {
+            hist.fixed_scale = !hist.fixed_scale;
+        }
+        else if (key == 'o')
+        {
+            util_overlay = !util_overlay;
         }
         else if (key == '+' || key == '=')
         {
@@ -2333,7 +2910,8 @@ int main(int argc, char** argv)
         if (g_winch)
         {
             g_winch = 0;
-            render_tui(sampler.d, qpu, counters, page, regs_view, reg_scroll, paused, interval_ms, view_scroll);
+            render_tui(sampler.d, qpu, counters, hist, page, regs_view, reg_scroll, paused,
+                interval_ms, view_scroll, util_overlay);
         }
     }
 

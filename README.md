@@ -21,7 +21,7 @@ uses the module's fixed 16-counter map.
 - **System / power**: arm, core, V3D, H264, ISP, pixel, HDMI, VEC and eMMC clocks; core/SDRAM voltages; temperature; decoded throttle bits; GPU/ARM memory split; CMA; V3D runtime-PM state; undervoltage alarm; HVS underrun; DRM name; HDMI status/mode; buffer/client counts.
 - **Memory utilization**: the raw firmware split and CMA free stay visible, plus two live bars with percentage and used/total MiB — `ARM` (`MemTotal - MemAvailable` from `/proc/meminfo`) and `GPU/CMA` (`CmaTotal - CmaFree`, the pool carved out for the GPU).
 - **QPU / scheduler / VPM**: IDENT0/1/2, revision, slices, QPUs/slice, TMUs/slice, total QPUs/TMUs, semaphores, VPM size, HDR support, SRQCS queue/requests/completed/qerr, VPMBASE reserved bytes, VPACNTL, SQRSV0/1, SQCNTL, SRQPC/SRQUA/SRQUL, INTCTL/INTENA/INTDIS, PCTRE/PCTRC, L2CACTL/SLCACTL and decoded ERRSTAT.
-- **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall metrics from counter sources 13-19, one line each: label + bar + a single percentage.
+- **Utilization**: idle, vertex, fragment, valid and TMU/scoreboard/varying stall metrics from counter sources 13-19, one line each: label + bar + a single percentage. Below them, a braille history graph of **QPU busy** (`100% - Idle`) with the live value, window mean and peak in its header, a labelled axis and a 30/120/300-sample window.
 - **Counters**: root samples all **30** V3D counter sources, on three pages
   (the hardware has 16 counters, so pages are used):
   - page 1: QPU/GPU primary, sources 13-28
@@ -138,11 +138,11 @@ vc4top --once            # unprivileged, if vc4mon is loaded
 
 The layout adapts to the terminal:
 
-- **160+ columns (wide / horizontal desktop)**: three content-sized panels across the top — system/power/memory, QPU/queues/VPM and utilization — over a **full-width counter table** split into two side-by-side halves, then a full-width flags/units strip. All sampled counter sources stay visible at once, the utilization bars widen to fill their panel, and the top row and counter table share the spare height, so a short desktop terminal (160x45, 200x50) fills its rows instead of leaving a blank band under fixed-percentage columns. Captures: [`docs/ui/wide/`](docs/ui/wide/).
+- **160+ columns (wide / horizontal desktop)**: three content-sized panels across the top — system/power/memory, QPU/queues/VPM and utilization — over a **full-width counter table** split into two side-by-side halves, then a full-width flags/units strip. All sampled counter sources stay visible at once, the utilization bars and the QPU busy graph fill their panel, and the top row and counter table share the spare height, so a short desktop terminal (160x45, 200x50) fills its rows instead of leaving a blank band under fixed-percentage columns. Captures: [`docs/ui/wide/`](docs/ui/wide/) and [`docs/ui/graph/`](docs/ui/graph/).
 - **136-159 columns**: three columns (system/power/memory + utilization, QPU/queues/VPM, counters + flags/notes), so status, memory, queues and counters are visible together at 140x40.
 - **100-135 columns**: two columns (system/QPU/utilization on the left, counters/flags on the right).
-- **Under 100 columns**: one compact column: system status + memory bars, all seven utilization bars, the counter table, then QPU/queues/VPM. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
-- At 80x24 the first screen shows system status with both memory bars, every utilization metric, and the counter table header with its first row; the QPU/queue/VPM section and the rest of the table are one scroll down. The always-on two-row legend never overlaps it.
+- **Under 100 columns**: one compact column: system status + memory bars, all seven utilization bars, the QPU busy graph, the counter table, then QPU/queues/VPM. `j`/`k` scrolls the view and the footer shows the visible line range; long values are truncated with `>` rather than overlapping.
+- At 80x24 the first screen shows system status with both memory bars, every utilization metric and the first screenful of the graph; the counter table, the rest of the graph and the QPU/queue/VPM section are one scroll down. The always-on two-row legend never overlaps it.
 
 Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is kept in `--once`), `°C` for temperature, `MiB` for memory, `counts`/`cnt/s` for counters and `%` for utilization. Colour is automatic: `NO_COLOR=1`, `--no-color`, or piping the output selects plain text. A compact key/unit/colour legend is always visible in the footer; `h` opens the full help screen with the flags and the memory/utilization definitions.
 
@@ -156,7 +156,43 @@ Every number carries a unit: hex for registers, `MHz` for clocks (raw `Hz` is ke
 | `j` / `k` | scroll the register dump, or the live view when narrow |
 | `p` | pause/resume sampling |
 | `+` / `-` | increase/decrease the sample interval |
+| `u` | cycle the graph window: 30, 120 (default) or 300 samples |
+| `f` | toggle the graph scale: fixed 0-100 % or auto to the window |
+| `o` | overlay temperature and ARM memory graphs, each on its own axis |
 | `h` | help |
+
+### Utilisation graph
+
+The utilisation panel keeps the seven numeric lines and adds a history graph of
+**QPU busy**, defined as `100% - Idle` over the same seven QPU cycle counters
+(13-19) and the same normalisation as the `Idle` line above it. Both are fed
+from one counter sample per frame, so the header's live value and the `Idle`
+percentage cannot disagree.
+
+- **Sampling.** One graph sample is one second of measured counter time,
+  bucketed from the existing sampling loop; there is no extra thread, timer or
+  privilege. `u` selects a 30, 120 (default, about two minutes) or 300-sample
+  window. The full ring always keeps 300 samples, so widening the window brings
+  older history back.
+- **Bars.** Each braille cell holds two sample columns and four levels, so a
+  three-row graph resolves twelve levels. A sample lights every dot from the
+  baseline up to its value, which keeps 0 % visible. When the window is longer
+  than the graph, one maximum per column is kept so a peak never disappears.
+- **Header.** The header prints the live value (the current frame's sample, the
+  same number as `100% - Idle`), the mean and the peak over the window. The
+  caption below prints `samples/window` and the covered time.
+- **Scale.** The default axis is fixed at 0-100 %, so a quiet GPU stays a flat
+  line near the bottom. `f` switches to auto, which zooms to the window but
+  stays inside 0-100 %; the axis labels always print the range in use, and the
+  header/caption say `auto`.
+- **Gaps.** A failed counter read is a gap, drawn as a dim `·` on the baseline,
+  never as a zero. Columns older than the collected history are left blank.
+- **Overlay.** `o` adds temperature and ARM memory below the QPU graph. Each
+  has its own header, unit and axis (temperature fixed at 20-90 °C, ARM memory
+  at 0-100 %), rather than sharing the QPU percentage axis.
+- **Counter pages.** History is recorded while the QPU page (page 1/3) is
+  displayed, because sources 13-19 are what it measures. On pages 2 and 3 the
+  panel says so and the history pauses instead of inventing a value.
 
 ### Non-interactive modes
 
@@ -166,7 +202,12 @@ sudo vc4top --all-counters    # root: all 30 sources; unprivileged: fixed 16
 sudo vc4top --regs            # full register dump
 sudo vc4top --poll 50         # CSV of SRQCS/SRQPC/SRQUA/VPMBASE/ERRSTAT at 50 ms
 sudo vc4top --frame           # render one TUI frame and exit
+sudo vc4top --dump-samples 90 # sample the graph for 90 s, print CSV + braille
 ```
+
+`--dump-samples SECONDS` runs the same one-second history sampler headless and
+prints the ring as a CSV table plus the three braille graphs, so the data behind
+the TUI graph can be checked without a terminal. Empty CSV fields are gaps.
 
 If stdout is not a TTY, `vc4top` prints the snapshot instead of starting the TUI.
 
@@ -192,6 +233,34 @@ table shows the module's fixed 16-counter map.
 - The GPU has no MMU between QPU and RAM; VC4CL compute is root-only by design.
 
 ## Changelog
+
+### Unreleased
+
+- Utilisation history graph: the utilization panel now draws QPU busy
+  (`100% - Idle`) as a braille area sparkline under the seven numeric lines.
+  The ring keeps one sample per second of measured counter time; `u` selects
+  30/120/300 samples (default 120, about two minutes), `f` toggles a fixed
+  0-100 % axis and auto scale, and `o` adds temperature (20-90 °C) and ARM
+  memory (0-100 %) graphs, each with its own header, unit and axis. The header
+  prints the live value, window mean and peak, and the rightmost column is the
+  live sample, so it always matches the `Idle` line: both are computed from the
+  same counter vector in the same frame.
+- Failed counter reads are gaps (`·`), never zeros, and columns older than the
+  collected history stay blank. Counter pages without sources 13-19 pause the
+  history and the panel says why. Sampling stays on the existing per-frame
+  loop: no extra thread, timer or privilege.
+- `--dump-samples SECONDS` runs the history sampler headless and prints the
+  ring as CSV plus the three braille graphs.
+- The sampler now always waits out its interval, including when a vc4mon
+  `perf_enable` write is rejected because another process holds the counter
+  lease. Previously that path returned immediately and the live loop spun.
+- Verified on the board under a `vc4infer bench modelB` loop (11 clients,
+  `qpu_duty` 27.1-28.8 % each, thermal-guard at 75 °C, peak 46.2 °C):
+  `--dump-samples 90` gives 87 samples, 0 gaps, mean 30.7 %, peak 100 %; the
+  160x45 frames show the load, the overlay and auto scale; a held vc4mon lease
+  gives 8 gap rows out of 8 with temperature and memory intact. `-Wall
+  -Wextra` build clean, one `write(2)` per frame. Captures and dumps are in
+  [`docs/ui/graph/`](docs/ui/graph/).
 
 ### 1.0.5 (2026-11-19)
 

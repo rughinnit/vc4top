@@ -1,0 +1,45 @@
+VC4TOP  2026-11-23 01:01:48 WIB  V3D ON  46.2 °C  thr 0x50000 (uv-past,thr-past)  500ms                                                                         
++- SYSTEM / POWER / MEMORY ----------------------+ +- QPU / QUEUES / VPM ---------------------------+ +- UTILIZATION  busy = 100% - Idle ----------------------+
+| status   2026-11-23 01:01:48 WIB  temp 46.2 °C | | ident    rev 1  3 slices x 4 QPUs = 12  6 TMUs | | Idle        [...............................]   0.0%   |
+|          thr 0x50000 (uv-past,thr-past)        | |          16 semaphores  VPM 12 KiB  HDR 1      | |                                                        |
+|                                                | |                                                | | Vertex      [...............................]   0.0%   |
+| clocks   arm 900.000 MHz  core 400.000 MHz     | | regs     IDENT0 0x02443356  IDENT1 0xc1102431  | |                                                        |
+|          v3d 300.000 MHz  h264 0.000 MHz       | |          IDENT2 0x00000121                     | | Fragment    [...............................]   0.0%   |
+|          isp 0.000 MHz  pixel 0.337 MHz        | |                                                | |                                                        |
+|          hdmi 163.683 MHz  vec 108.000 MHz     | | queue    SRQCS 0x00080c00  queue 0  req 12     | | Valid       [#################..............]  54.0%   |
+|          emmc 200.000 MHz                      | |          done 8  qerr 0                        | |                                                        |
+|                                                | |                                                | | Stall TMU   [##############.................]  46.0%   |
+| volts    core 1.3000V  sdram_c 1.2000V         | | pointers SRQPC 0xe162d000  SRQUA 0x386c6cb0    | |                                                        |
+|                                                | |          SRQUL 0x00000000                      | | Stall SB    [...............................]   0.0%   |
+| memory   gpu 76 MiB  arm 948 MiB               | | vpm      VPMBASE 0x00000010  reserved 4096 B   | |                                                        |
+|          CMA 256 MiB / 84 MiB free             | |          VPACNTL 0x00000000                    | | Stall Vary  [...............................]   0.0%   |
+|          ARM     [###....]  39.1%  354/905 MiB | | sched    SQRSV0 0x00000000  SQRSV1 0x00000000  | |                                                        |
+|          GPU/CMA [#####..]  67.2%  172/256 MiB | |          SQCNTL 0x00000000                     | | QPU busy 100.0%  mean 37.8%  peak 100.0%               |
+|                                                | | irq      INTCTL 0x00000004  INTENA 0x00000003  | |                                                        |
+| power    v3d active / on  undervolt 0          | |          INTDIS 0x00000003                     | | 100|                              ⠀⠀⠀⠀⠀⢸⡇⠀⣿⠀⠀⣇⠀⢸⡇⠀⣿⠀⠀⣿ |
+|          hvs underrun 0  0 client(s)           | | perf     PCTRE 0x80000003  PCTRC 0x00000000    | |    |                              ⠀⠀⠀⠀⠀⢸⡇⠀⣿⠀⠀⣿⠀⢸⡇⠀⣿⠀⠀⣿ |
+|                                                | |          L2CACTL 0x00000001                    | |    |                              ⠀⠀⠀⠀⠀⣿⡇⠀⣿⡇⢸⣿⠀⣿⡇⠀⣿⡇⢸⣿ |
+| display  drm vc4 dev=soc:gpu unique=soc:gpu    | |          SLCACTL 0x00000000                    | |   0|                              ⢀⣀⣀⣀⣀⣿⣇⣀⣿⣇⣸⣿⣀⣿⣇⣀⣿⣇⣸⣿ |
+|          hdmi disconnected   bo none           | | errors   ERRSTAT 0x00001000  VCD-idle          | | 39/120 samples, 38s                                    |
++------------------------------------------------+ +------------------------------------------------+ +--------------------------------------------------------+
+                                                                                                                                                                
++- COUNTERS  page 1/3  QPU/GPU primary (13-28) ----------------------------------------------------------------------------------------------------------------+
+| ID  NAME                                                  VALUE   RATE cnt/s   ID  NAME                                                  VALUE   RATE cnt/s  |
+|                                                                                                                                                              |
+| 13  QPU idle cycles                                       19104      38208.0   21  QPU i-cache miss                                     131013     262026.0  |
+|                                                                                                                                                              |
+| 14  QPU vertex cycles                                      4776       9552.0   22  QPU u-cache hits                                      63904     127808.0  |
+| 15  QPU fragment cyc                                          0          0.0   23  QPU u-cache miss                                       5545      11090.0  |
+| 16  QPU valid cycles                                  118920600  237841200.0   24  TMU texture quads                                  22299472   44598944.0  |
+| 17  QPU TMU stall                                     101423644  202847288.0   25  TMU cache misses                                    1330333    2660666.0  |
+| 18  QPU scoreboard st                                         0          0.0   26  VPM VDW stall                                             0          0.0  |
+| 19  QPU varying stall                                         0          0.0   27  VPM VCD stall                                             0          0.0  |
+| 20  QPU i-cache hits                                   29730080   59460160.0   28  L2C hits                                             201350     402700.0  |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+                                                                                                                                                                
+flags --once --all-counters --regs --poll [ms] --frame --no-color   |   plain: NO_COLOR=1 or piped   |   30 counter sources / 3 pages (a/[] cycles)             
+rate: counts/s over interval   |   memory: ARM from /proc, GPU/CMA pool   |   util: label + bar + %, printed once                                               
+graph: QPU busy = 100% - Idle, 1 s/bin, ring 30/120/300 (u)   |   f: fixed 0-100% or auto scale; o: temp + ARM mem overlay                                      
+QPU counters are 3D-oriented; raw compute may leave idle/valid at zero   |   h: full help/flags                                                                 
+q quit  a page  g regs  j/k  p pause  +/- int  u window  f scale  o overlay  h help                                                                             
+units  MHz  °C  MiB  %  cnt/s    ok warn err idle    h full help/flags                                                                                          
