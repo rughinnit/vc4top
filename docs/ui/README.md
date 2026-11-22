@@ -28,6 +28,8 @@ Captured on the Raspberry Pi with the stock clocks unchanged:
 | `PERFORMANCE-1.0.2.md` | 1.0.2 re-measurement: frame period, write counts, scrolls, CPU |
 | `REGISTER-ACCESS.md` | 1.0.4 unprivileged `vc4mon` counters, 1.0.3 read-path design and verification (no `/dev/mem`, identical registers, 0 scrolls) |
 | `wide/before-*.txt` / `wide/after-*.txt` | 1.0.5 before/after frames at 160x45, 192x48, 200x50, 240x60, 256x70 plus 80x24, 120x40 and 140x40 controls |
+| `graph/after-*.txt` | utilisation history graph: 160x45 under load, 160x45 with the temperature/memory overlay, 160x45 auto scale, 80x24 idle |
+| `graph/dump-*.txt` | `--dump-samples` output: 90 s under load, and 8 s with the counter lease held (all gaps) |
 
 The frame dumps are plain text with ANSI colour and cursor controls stripped, so
 they are reproducible and readable in a diff.
@@ -208,3 +210,76 @@ PASS: 45 lines, widths=[160], 16 counter rows, 0 clip markers
 
 and the pty replay reports `scrolls=0` with `rows - 1` newlines per frame at
 all eight sizes.
+
+## Utilisation history graph
+
+The utilization panel keeps the seven numeric cycle-share lines and adds a
+history graph of **QPU busy** (`100% - Idle`), computed from the same counter
+vector the frame renders. One sample is one second of measured counter time;
+`u` selects 30/120/300 samples, `f` toggles fixed 0-100 % and auto scale, and
+`o` adds temperature and ARM memory graphs. Failed reads are gaps (`·`); a
+counter page without sources 13-19 pauses the history and says so instead of
+drawing a value.
+
+At 160x45 during a `vc4infer bench modelB` loop (panel only, blank stretch rows
+removed):
+
+```
++- UTILIZATION  busy = 100% - Idle ----------------------+
+| Idle        [...............................]   0.0%   |
+| Vertex      [...............................]   0.0%   |
+| Fragment    [...............................]   0.0%   |
+| Valid       [#################..............]  54.0%   |
+| Stall TMU   [##############.................]  46.0%   |
+| Stall SB    [...............................]   0.0%   |
+| Stall Vary  [...............................]   0.0%   |
+| QPU busy 100.0%  mean 37.8%  peak 100.0%               |
+| 100|                              ⠀⠀⠀⠀⠀⢸⡇⠀⣿⠀⠀⣇⠀⢸⡇⠀⣿⠀⠀⣿ |
+|    |                              ⠀⠀⠀⠀⠀⢸⡇⠀⣿⠀⠀⣿⠀⢸⡇⠀⣿⠀⠀⣿ |
+|    |                              ⠀⠀⠀⠀⠀⣿⡇⠀⣿⡇⢸⣿⠀⣿⡇⠀⣿⡇⢸⣿ |
+|   0|                              ⢀⣀⣀⣀⣀⣿⣇⣀⣿⣇⣸⣿⣀⣿⣇⣀⣿⣇⣸⣿ |
+| 39/120 samples, 38s                                    |
++--------------------------------------------------------+
+```
+
+`Idle 0.0 %` and `QPU busy 100.0%` are the same sample, and the graph's
+rightmost column is that live sample; the bars are the completed one-second
+bins. `o` puts temperature and ARM memory below it, each on its own labelled
+axis rather than on the percentage axis:
+
+```
+| QPU busy 0.0%  mean 37.5%  peak 100.0%                 |
+| 100|                           ⠀⠀⠀⠀⠀⣿⠀⢸⡇⠀⢸⡄⠀⣿⠀⢸⡇⠀⢸⡇⠀⣿⠀ |
+|   0|                           ⣀⣀⣀⣀⣸⣿⣀⣸⣿⣀⣿⣇⣸⣿⣀⣸⣿⣀⣿⣇⣀⣿⣇ |
+| 46/120 samples, 45s                                    |
+|                                                        |
+| temp 45.6°C  mean 45.6°C  peak 46.2°C                  |
+|  90|                           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ |
+|  20|                           ⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶ |
+|                                                        |
+| ARM mem 35.0%  mean 37.0%  peak 39.5%                  |
+| 100|                           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ |
+|   0|                           ⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶ |
++--------------------------------------------------------+
+```
+
+`f` zooms each axis to the window but keeps every series inside its own domain
+(percentages never go below 0 or above 100); the axis labels always print the
+range in use and the header says `auto`.
+
+`--dump-samples 90` prints the same ring as CSV plus the three braille graphs.
+Under the load above: 87 samples, 0 gaps, mean 30.7 %, peak 100 %, with the
+load starting after the first idle samples and an idle tail at the end. A held
+vc4mon lease (another process sampling the counters) gives one-second rows with
+an empty QPU field, while temperature and memory keep sampling and the graph
+shows `·` gap markers:
+
+```
+index,age_s,span_s,qpu_busy_pct,temp_c,arm_mem_pct
+0,7.0,1.0,,46.2,37.0
+...
+7,0.0,1.0,,45.1,35.5
+# samples=8 gaps=8 mean=n/a peak=n/a span=8.0 s
+```
+
+The full frames and dumps are in [`graph/`](graph/).

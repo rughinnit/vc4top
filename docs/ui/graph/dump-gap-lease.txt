@@ -1,0 +1,28 @@
+# vc4top utilisation history
+# reads=16 failed=16 interval=500 ms window=120 samples
+# one sample per 1000 ms of measured counter time; empty field = gap
+index,age_s,span_s,qpu_busy_pct,temp_c,arm_mem_pct
+0,7.0,1.0,,46.2,37.0
+1,6.0,1.0,,45.6,36.4
+2,5.0,1.0,,45.9,36.0
+3,4.0,1.0,,45.3,35.9
+4,3.0,1.0,,45.7,35.7
+5,2.0,1.0,,45.3,35.6
+6,1.0,1.0,,45.3,35.5
+7,0.0,1.0,,45.1,35.5
+# samples=8 gaps=8 mean=n/a peak=n/a span=8.0 s
+# graph: QPU busy % (fixed 0-100, 8.0 s window)
+                    
+                    
+                    
+                ····
+# graph: temperature (fixed 20-90 degC)
+                ⠀⠀⠀⠀
+                ⠀⠀⠀⠀
+                ⣤⣤⣤⣤
+                ⣿⣿⣿⣿
+# graph: ARM memory % (fixed 0-100)
+                ⠀⠀⠀⠀
+                ⠀⠀⠀⠀
+                ⣤⣤⣤⣤
+                ⣿⣿⣿⣿
